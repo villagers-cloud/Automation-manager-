@@ -1,0 +1,138 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#f5f4ef">
+<title>Automation Manager</title>
+<link rel="manifest" href="./manifest.json">
+<link rel="stylesheet" href="./css/style.css">
+<!-- PDF library -->
+<script src="https://cdn.jsdelivr.net/npm/html2pdf.js@0.10.1/dist/html2pdf.bundle.min.js" integrity="sha384-Yv5O+t3uE3hunW8uyrbpPW3iw6/5/Y7HitWJBLgqfMoA36NogMmy+8wWZMpn3HWc" crossorigin="anonymous"></script>
+</head>
+<body>
+
+<div id="lockScreen">
+  <div class="lock-box">
+    <div class="brand-mark" style="margin:auto">⚙</div>
+    <h2 style="margin-top:16px">App Locked</h2>
+    <p class="muted">Enter your 4-digit PIN to continue.</p>
+    <div class="pin-dots" id="pinDots"></div>
+    <div class="pin-error" id="pinError"></div>
+    <div class="pin-pad" id="pinPad"></div>
+  </div>
+</div>
+
+<div class="app" id="app">
+  <header class="topbar">
+    <div class="brand">
+      <div class="brand-mark">⚙</div>
+      <div>
+        <h1 id="appTitle">Automation Manager</h1>
+        <div class="subtitle">Offline Business OS</div>
+      </div>
+    </div>
+    <div class="top-actions">
+      <button class="icon-btn" id="themeBtn" title="Toggle theme">☾</button>
+      <button class="icon-btn" data-navigate="settings" title="Settings">⚙</button>
+    </div>
+  </header>
+
+  <main>
+    <!-- Pages will be dynamically injected or toggled here -->
+    <section class="page active" id="page-dashboard"></section>
+  </main>
+</div>
+
+<!-- Bottom Navigation -->
+<nav class="nav">
+  <button class="nav-btn active" data-navigate="dashboard">⌂<br>Home</button>
+  <button class="nav-btn" data-navigate="clients">👥<br>Clients</button>
+  <button class="nav-btn" data-navigate="quotes">📝<br>Quotes</button>
+  <button class="nav-btn" data-navigate="projects">📂<br>Projects</button>
+  <button class="nav-btn" id="moreMenuToggle">☰<br>More</button>
+</nav>
+
+<!-- Filter Drawer -->
+<div class="more-drawer" id="filterMenuDrawer">
+    <div style="padding: 0 10px;">
+        <h3 style="margin-top:0">Filter by Date & Time</h3>
+        <div class="field">
+            <label>Presets</label>
+            <select id="filterPreset">
+                <option value="custom">Custom Range</option>
+                <option value="today">Today</option>
+                <option value="yesterday">Yesterday</option>
+                <option value="this_week">This week</option>
+                <option value="last_week">Last week</option>
+                <option value="this_month">This month</option>
+                <option value="last_month">Last month</option>
+                <option value="this_year">This year</option>
+                <option value="last_year">Last year</option>
+            </select>
+        </div>
+        <div class="row">
+            <div class="field">
+                <label>From Date</label>
+                <input type="date" id="filterFromDate">
+            </div>
+            <div class="field">
+                <label>To Date</label>
+                <input type="date" id="filterToDate">
+            </div>
+        </div>
+        <div class="row">
+            <div class="field">
+                <label>From Time (Optional)</label>
+                <input type="time" id="filterFromTime">
+            </div>
+            <div class="field">
+                <label>To Time (Optional)</label>
+                <input type="time" id="filterToTime">
+            </div>
+        </div>
+        <div style="display:flex; gap:10px; margin-top:20px;">
+            <button class="btn primary" style="flex:1" id="applyFilterBtn">Apply</button>
+            <button class="btn danger" style="flex:1" id="clearFilterBtn">Clear</button>
+        </div>
+    </div>
+</div>
+
+<!-- More Menu Drawer -->
+<div class="more-drawer" id="moreMenuDrawer">
+    <div class="drawer-grid">
+        <button class="drawer-btn" data-navigate="services">🛠<br>Services</button>
+        <button class="drawer-btn" data-navigate="tasks">✓<br>Tasks</button>
+        <button class="drawer-btn" data-navigate="invoices">🧾<br>Invoices</button>
+        <button class="drawer-btn" data-navigate="payments">💰<br>Payments</button>
+        <button class="drawer-btn" data-navigate="expenses">📉<br>Expenses</button>
+        <button class="drawer-btn" data-navigate="team">👨‍💻<br>Team</button>
+        <button class="drawer-btn" data-navigate="reports">📊<br>Reports</button>
+        <button class="drawer-btn" data-navigate="notes">📓<br>Notes</button>
+        <button class="drawer-btn" data-navigate="settings">⚙<br>Settings</button>
+        <button class="drawer-btn" data-navigate="data">💾<br>Data Backup</button>
+    </div>
+</div>
+
+<!-- Hidden PDF Template -->
+<div id="pdfTemplate" style="display:none">
+  <!-- Content injected via JS later -->
+</div>
+
+<script src="./js/db/database.js"></script>
+<script src="./js/utils/helpers.js"></script>
+<script src="./js/utils/migration.js"></script>
+<script src="./js/ui/navigation.js"></script>
+<!-- Module views -->
+<script src="./js/views/dashboard.js"></script>
+<script src="./js/views/clients.js"></script>
+<script src="./js/views/services.js"></script>
+<script src="./js/views/quotes.js"></script>
+<script src="./js/views/projects.js"></script>
+<script src="./js/views/billing.js"></script>
+<script src="./js/views/team_notes.js"></script>
+<script src="./js/views/reports_settings.js"></script>
+<!-- Main App Entry -->
+<script src="./js/app.js"></script>
+</body>
+</html>
