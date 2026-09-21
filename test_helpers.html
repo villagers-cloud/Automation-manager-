@@ -1,0 +1,93 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Test: Helpers</title>
+    <style>
+        body { font-family: sans-serif; padding: 20px; }
+        .pass { color: green; margin: 5px 0; }
+        .fail { color: red; margin: 5px 0; }
+        .summary { font-weight: bold; margin-top: 20px; }
+    </style>
+</head>
+<body>
+    <h1>Helper Tests</h1>
+    <div id="results"></div>
+    <div id="summary" class="summary"></div>
+
+    <!-- Scripts under test -->
+    <script src="../js/utils/helpers.js"></script>
+
+    <!-- Tests -->
+    <script>
+        const resultsDiv = document.getElementById('results');
+        const summaryDiv = document.getElementById('summary');
+        let passed = 0;
+        let failed = 0;
+
+        function runTest(name, testFn) {
+            try {
+                testFn();
+                resultsDiv.innerHTML += `<div class="pass">✔ ${name}</div>`;
+                passed++;
+            } catch (e) {
+                resultsDiv.innerHTML += `<div class="fail">✘ ${name}: ${e.message}</div>`;
+                console.error(`Test Failed: ${name}`, e);
+                failed++;
+            }
+        }
+
+        function assertEquals(actual, expected, message = '') {
+            if (actual !== expected) {
+                throw new Error(`Expected ${JSON.stringify(expected)}, but got ${JSON.stringify(actual)}. ${message}`);
+            }
+        }
+
+        // --- Tests for escapeHTML ---
+
+        runTest('escapeHTML: encodes ampersand (&)', () => {
+            assertEquals(escapeHTML('Jack & Jill'), 'Jack &amp; Jill');
+        });
+
+        runTest('escapeHTML: encodes less-than (<) and greater-than (>)', () => {
+            assertEquals(escapeHTML('<div>'), '&lt;div&gt;');
+        });
+
+        runTest('escapeHTML: encodes double quotes (")', () => {
+            assertEquals(escapeHTML('"Hello"'), '&quot;Hello&quot;');
+        });
+
+        runTest('escapeHTML: encodes single quotes (\')', () => {
+            assertEquals(escapeHTML("'Hello'"), '&#039;Hello&#039;');
+        });
+
+        runTest('escapeHTML: mixed special characters', () => {
+            assertEquals(escapeHTML('<a href="?a=1&b=2">O\'Reilly</a>'), '&lt;a href=&quot;?a=1&amp;b=2&quot;&gt;O&#039;Reilly&lt;/a&gt;');
+        });
+
+        runTest('escapeHTML: handles empty string', () => {
+            assertEquals(escapeHTML(''), '');
+        });
+
+        runTest('escapeHTML: handles null', () => {
+            assertEquals(escapeHTML(null), '');
+        });
+
+        runTest('escapeHTML: handles undefined', () => {
+            assertEquals(escapeHTML(undefined), '');
+        });
+
+        runTest('escapeHTML: string with no special characters', () => {
+            assertEquals(escapeHTML('Hello World'), 'Hello World');
+        });
+
+        runTest('escapeHTML: handles numbers', () => {
+            assertEquals(escapeHTML(123), '123');
+        });
+
+        // Summary
+        summaryDiv.innerHTML = `Tests completed. Passed: ${passed}, Failed: ${failed}`;
+        summaryDiv.style.color = failed > 0 ? 'red' : 'green';
+    </script>
+</body>
+</html>
