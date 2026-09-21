@@ -1,15 +1,22 @@
-AUTOMATION MANAGER - complete app with Phase 1-4 repairs applied
+AUTOMATION MANAGER - Phases 1 to 4 (final versions)
 
-This is the WHOLE app (runtime files + tests), ready to be the base of a new repo.
-Open index.html through any static web server (GitHub Pages works as is).
+COPY THESE 6 FILES over the same paths in your project (they replace the old ones):
+  js/utils/migration.js          (Phase 1)
+  js/utils/helpers.js            (Phase 2)
+  js/app.js                      (Phase 2)
+  js/views/billing.js            (Phase 3)
+  js/views/projects.js           (Phase 3)
+  js/views/reports_settings.js   (Phase 4 - already contains the Phase 1 changes)
 
-Runtime files : index.html, manifest.json, sw.js, css/, js/, assets/
-Tests (optional): tests/   (Node; the *browser* tests also need puppeteer-core + Chromium)
+NOTE: js/views/reports_settings.js from Phase 1 is OLD. Use only this one.
 
-Left out on purpose (development leftovers, not used by the app):
-  screenshots (*.png in the root), benchmark.py, benchmark_optimized.py, test_ui.py, .jules/
-They still exist in your ORIGINAL repo, nothing was deleted there.
+tests/ folder (optional, not used by the app):
+  tests/test_helpers.js  -> replaces your existing tests/test_helpers.js (recommended: the old one
+                            asserted the UTC-date bug and fails in timezones west of UTC)
+  the other 8 files are new regression tests; they need Node, and the *browser* ones also need
+  puppeteer-core + Chromium. You can skip them.
 
-Not done yet (later phases): Phase 5 download reliability + PDF error handling (helpers.js, quotes.js),
-Phase 6 service worker (sw.js still uses cache name automation-manager-v2 and needs a version bump
-before you update an already-installed copy), Phase 7 optional polish.
+DO NOT TOUCH: every other file (navigation.js, database.js, sw.js, index.html, manifest.json, css/,
+dashboard.js, clients.js, services.js, quotes.js, team_notes.js) is identical to your original ZIP.
+
+AFTER SAVING: hard-reload the app once (or clear site data) - sw.js still caches the old JS until Phase 6.
