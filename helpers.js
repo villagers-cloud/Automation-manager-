@@ -228,7 +228,16 @@ function filterDataByDate(data, dateField = 'date') {
     });
 }
 
-// Download Helper
+// Download Helper.
+// Returns a plain result object describing what actually happened — never throws for an
+// ordinary save/cancel, so a caller can show an honest message instead of always guessing:
+//   { status: 'saved',      method: 'picker' }  - the browser confirmed the file was written
+//   { status: 'cancelled',  method: 'picker' }  - the user closed the Save dialog; nothing was written
+//   { status: 'downloaded', method: 'anchor'  }  - handed to the browser's normal download (mobile /
+//                                                  unsupported browsers); the browser gives no confirmation,
+//                                                  so this only means the download was *started*, not saved
+// A genuine failure to hand off the file (both the picker AND the anchor fallback failed) still throws,
+// so existing callers' try/catch (Backup/CSV export) keep showing their own "FAILED" message unchanged.
 async function saveFileToDevice(blob, filename) {
     if (window.showSaveFilePicker) {
         try {
@@ -242,25 +251,33 @@ async function saveFileToDevice(blob, filename) {
             const writable = await handle.createWritable();
             await writable.write(blob);
             await writable.close();
-            return;
+            return { status: 'saved', method: 'picker' };
         } catch (err) {
-            if (err.name !== 'AbortError') {
-                console.error('File System Access API failed, falling back:', err);
-            } else {
-                return; // User cancelled
+            if (err.name === 'AbortError') {
+                return { status: 'cancelled', method: 'picker' }; // User cancelled — nothing was written, nothing to fall back to
             }
+            console.error('File System Access API failed, falling back:', err);
+            // fall through to the anchor-download fallback below
         }
     }
 
-    // Fallback for mobile / browsers without File System Access API
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = filename;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    URL.revokeObjectURL(url);
+    // Fallback for mobile / browsers without File System Access API.
+    // The object URL is kept alive for a short while after click(): on some mobile browsers and
+    // WebViews the download is handled asynchronously, and revoking immediately can cut it off
+    // before the browser has actually read the blob's data.
+    try {
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = filename;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        setTimeout(() => URL.revokeObjectURL(url), 4000);
+        return { status: 'downloaded', method: 'anchor' };
+    } catch (err) {
+        throw new Error('Could not start the download: ' + (err && err.message ? err.message : err));
+    }
 }
 
 // Global Custom Confirm

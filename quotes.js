@@ -319,11 +319,15 @@ async function showQuoteForm(quote = null, isDuplicate = false) {
 }
 
 // PDF Generation
+let __pdfGenerating = false; // prevents overlapping generatePdf() runs from fighting over the shared #pdfTemplate element
+
 async function generatePdf(q) {
     if (typeof html2pdf === "undefined") {
         alert("PDF library is unavailable offline. Wait for connection or ensure it is cached.");
         return;
     }
+    if (__pdfGenerating) return; // a PDF is already being generated; ignore a second click rather than corrupt the shared template
+    __pdfGenerating = true;
 
     let clientName = q.clientNameTemp;
     if (q.clientId) {
@@ -399,11 +403,20 @@ async function generatePdf(q) {
         </div>
     `;
 
-    await html2pdf().set({
-        margin:0, filename:`${q.invoice}-${clientName}.pdf`,
-        image:{type:"jpeg", quality:.97}, html2canvas:{scale:2, useCORS:true},
-        jsPDF:{unit:"mm", format:"a4", orientation:"portrait"}
-    }).from(template.firstElementChild).save();
-
-    template.style.display = 'none';
+    try {
+        await html2pdf().set({
+            margin:0, filename:`${q.invoice}-${clientName}.pdf`,
+            image:{type:"jpeg", quality:.97}, html2canvas:{scale:2, useCORS:true},
+            jsPDF:{unit:"mm", format:"a4", orientation:"portrait"}
+        }).from(template.firstElementChild).save();
+    } catch (err) {
+        console.error('PDF generation failed:', err);
+        alert("PDF generation failed: " + (err && err.message ? err.message : err) + "\nPlease try again.");
+    } finally {
+        // Always runs, success or failure: #pdfTemplate is a page-level element (not scoped to any
+        // one view), so leaving it visible after an error would cover the entire app, not just this page.
+        template.style.display = 'none';
+        template.innerHTML = '';
+        __pdfGenerating = false;
+    }
 }
