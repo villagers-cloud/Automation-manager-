@@ -197,4 +197,4 @@ async function runMigrationIfNeeded() {
         result.error = String(e && e.message ? e.message : e);
         return finish(result);
     }
-      }
+}

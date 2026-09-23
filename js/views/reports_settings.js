@@ -331,6 +331,34 @@ window.BackupTools = (function () {
         return 'No ' + label + ' records to export — this list is empty. Your other data is not affected.';
     }
 
+    // The date field each CSV store is filtered on. Identical to the fields the on-screen lists use.
+    const CSV_DATE_FIELDS = {
+        clients: 'dateAdded',
+        quotes: 'date',
+        invoices: 'date',
+        expenses: 'date',
+        projects: 'startDate',
+        payments: 'date'
+    };
+
+    // Human-readable description of the active global date filter (empty string when there is none)
+    function describeDateFilter(f) {
+        if (!f) return '';
+        const from = f.fromDate ? f.fromDate + (f.fromTime ? ' ' + f.fromTime : '') : '';
+        const to = f.toDate ? f.toDate + (f.toTime ? ' ' + f.toTime : '') : '';
+        if (from && to) return from + ' → ' + to;
+        if (from) return 'from ' + from;
+        if (to) return 'until ' + to;
+        return '';
+    }
+
+    function emptyFilteredCsvMessage(store, total) {
+        const label = CSV_LABELS[store] || store;
+        const n = Number(total) || 0;
+        return 'No ' + label + ' records match the selected date range (' + n + (n === 1 ? ' record exists' : ' records exist') +
+            ' outside it). Clear the date filter to export all of them. Your data is not affected.';
+    }
+
     return {
         STORES: STORES,
         SECRET_SETTING_FIELDS: SECRET_SETTING_FIELDS,
@@ -347,8 +375,113 @@ window.BackupTools = (function () {
         replaceAllStores: replaceAllStores,
         csvEscape: csvEscape,
         buildCsv: buildCsv,
-        emptyCsvMessage: emptyCsvMessage
+        emptyCsvMessage: emptyCsvMessage,
+        CSV_DATE_FIELDS: CSV_DATE_FIELDS,
+        describeDateFilter: describeDateFilter,
+        emptyFilteredCsvMessage: emptyFilteredCsvMessage
     };
+})();
+
+// ============================================================================
+// SettingsTools — Phase 4: theme values and the PIN-lock rules (pure functions, unit-tested)
+// ============================================================================
+window.SettingsTools = (function () {
+    const THEME_MODES = ['system', 'light', 'dark'];
+
+    function normalizeThemeMode(value) {
+        return THEME_MODES.indexOf(value) !== -1 ? value : 'system';
+    }
+
+    function isValidPin(pin) {
+        return typeof pin === 'string' && /^\d{4}$/.test(pin);
+    }
+
+    // The exact rule app.js uses at start-up to decide whether to show the lock screen.
+    function isPinLockEffective(settings) {
+        return !!settings && !!settings.pinEnabled && isValidPin(settings.pin);
+    }
+
+    // Decides what "Save Preferences" may do with the PIN. Pure: it never touches any state.
+    //  - a typed PIN must be exactly 4 digits;
+    //  - the lock can only be turned ON if a usable 4-digit PIN exists (typed now, or already saved);
+    //  - turning it OFF is always allowed and keeps the stored PIN.
+    function resolvePinPreference(input) {
+        const wantOn = !!(input && input.wantEnabled);
+        const entered = input && typeof input.enteredPin === 'string' ? input.enteredPin.trim() : '';
+        const stored = input && typeof input.storedPin === 'string' ? input.storedPin : '';
+
+        if (entered !== '' && !isValidPin(entered)) {
+            return { ok: false, message: 'PIN must be exactly 4 digits.' };
+        }
+        const pin = entered !== '' ? entered : stored;
+        if (wantOn && !isValidPin(pin)) {
+            return { ok: false, message: 'To turn on PIN lock, enter a 4-digit PIN first.' };
+        }
+        const pinChanged = entered !== '' && entered !== stored;
+        let summary;
+        if (wantOn) {
+            summary = pinChanged
+                ? 'PIN lock is ON with the new PIN. The app will ask for it the next time it opens.'
+                : 'PIN lock is ON. The app will ask for the PIN the next time it opens.';
+        } else {
+            summary = pinChanged
+                ? 'The new PIN was saved, but PIN lock is OFF. Tick "Require PIN on Open" to use it.'
+                : 'PIN lock is OFF.';
+        }
+        return { ok: true, enabled: wantOn, pin: pin, pinChanged: pinChanged, summary: summary };
+    }
+
+    return {
+        THEME_MODES: THEME_MODES,
+        normalizeThemeMode: normalizeThemeMode,
+        isValidPin: isValidPin,
+        isPinLockEffective: isPinLockEffective,
+        resolvePinPreference: resolvePinPreference
+    };
+})();
+
+// ============================================================================
+// ReportTools — Phase 4: clear messages instead of a page that merely looks broken
+// ============================================================================
+window.ReportTools = (function () {
+    const KEYS = ['payments', 'expenses', 'clients', 'projects', 'quotes'];
+    const total = (counts) => KEYS.reduce((sum, k) => sum + (Number(counts && counts[k]) || 0), 0);
+
+    // null = nothing to say. Zeros are legitimate numbers when data exists.
+    function reportsNotice(input) {
+        if (total(input.allCounts) === 0) {
+            return { kind: 'info', message: 'No business data recorded yet. Add clients, quotes, payments and expenses and they will appear here.' };
+        }
+        if (input.filterActive && total(input.shownCounts) === 0) {
+            return { kind: 'info', message: 'No records in the selected date range. Your data is not missing. Clear the date filter (📅) to see everything.' };
+        }
+        return null;
+    }
+
+    const STYLES = {
+        info:  ['var(--bg)', 'var(--text)'],
+        error: ['var(--red-soft)', 'var(--red)']
+    };
+
+    function showNotice(notice) {
+        const el = document.getElementById('repNotice');
+        if (!el) return;
+        if (!notice) {
+            el.style.display = 'none';
+            el.textContent = '';
+            el.removeAttribute('data-kind');
+            return;
+        }
+        const style = STYLES[notice.kind] || STYLES.info;
+        el.style.display = 'block';
+        el.style.background = style[0];
+        el.style.color = style[1];
+        el.dataset.kind = notice.kind;
+        el.setAttribute('role', notice.kind === 'error' ? 'alert' : 'status');
+        el.textContent = notice.message;
+    }
+
+    return { reportsNotice: reportsNotice, showNotice: showNotice };
 })();
 
 // Reports View
@@ -360,6 +493,8 @@ window.appRouter.addRoute('reports', async () => {
                 <h2 style="margin:0">Business Reports</h2>
             <button class="icon-btn global-filter-btn" title="Filter by Date">📅</button>
             </div>
+
+            <div id="repNotice" role="status" aria-live="polite" style="display:none; margin-bottom:15px; padding:10px 12px; border-radius:10px; font-size:13px; font-weight:600"></div>
 
             <div class="grid">
                 <div class="col-6 metric">
@@ -432,11 +567,22 @@ window.appRouter.addRoute('reports', async () => {
         document.getElementById('repClients').textContent = clients.filter(c => c.status !== 'Inactive').length;
         document.getElementById('repProjects').textContent = projects.filter(p => p.status === 'In Progress' || p.status === 'Planning').length;
         document.getElementById('repQuotes').textContent = quotes.length;
+
+        // Explain an empty report instead of leaving a page full of zeros that looks broken
+        ReportTools.showNotice(ReportTools.reportsNotice({
+            allCounts: { payments: allPayments.length, expenses: allExpenses.length, clients: allClients.length, projects: allProjects.length, quotes: allQuotes.length },
+            shownCounts: { payments: payments.length, expenses: expenses.length, clients: clients.length, projects: projects.length, quotes: quotes.length },
+            filterActive: !!window.AppFilter.active
+        }));
     } catch (e) {
         console.error("Failed to load reports data:", e);
         document.getElementById('repRev').textContent = 'Error loading data';
         document.getElementById('repExp').textContent = 'Error loading data';
         document.getElementById('repNet').textContent = 'Error loading data';
+        document.getElementById('repClients').textContent = '—';
+        document.getElementById('repProjects').textContent = '—';
+        document.getElementById('repQuotes').textContent = '—';
+        ReportTools.showNotice({ kind: 'error', message: 'The reports could not be loaded. Your data is not affected. Reload the app and try again.' });
     }
 });
 
@@ -479,13 +625,18 @@ window.appRouter.addRoute('settings', async () => {
         <div class="col-6 card">
           <h2>App Preferences</h2>
           <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:15px">
-            <div><div style="font-weight:700">Dark Mode</div><div class="subtitle">Use a low-glare dark interface.</div></div>
-            <input type="checkbox" id="set-darkMode" style="width:auto; transform:scale(1.5)">
+            <div><div style="font-weight:700">Theme</div><div class="subtitle">Follow the device, or always use light or dark.</div></div>
+            <select id="set-themeMode" style="width:auto; min-width:120px">
+              <option value="system">System</option>
+              <option value="light">Light</option>
+              <option value="dark">Dark</option>
+            </select>
           </div>
           <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:15px">
             <div><div style="font-weight:700">Require PIN on Open</div><div class="subtitle">Ask for PIN every time app starts.</div></div>
             <input type="checkbox" id="set-pinEnabled" style="width:auto; transform:scale(1.5)">
           </div>
+          <div id="pinWarning" class="subtitle" style="display:none; color:var(--orange); font-weight:600; margin:-6px 0 12px"></div>
           <div class="field">
             <label>4-Digit App PIN</label>
             <input type="password" id="set-appPin" inputmode="numeric" maxlength="4" placeholder="Leave blank to keep current">
@@ -508,15 +659,22 @@ window.appRouter.addRoute('settings', async () => {
     `;
 
     const s = window.AppState.settings;
-  
+
     // Bind current settings
     ['agencyName', 'logoUrl', 'upiQrUrl', 'taxRate', 'metaRate', 'currency', 'invoicePrefix'].forEach(id => {
         const el = document.getElementById('set-' + id);
         if(el) el.value = s[id] !== undefined ? s[id] : '';
     });
 
-    document.getElementById('set-darkMode').checked = !!s.darkMode;
-    document.getElementById('set-pinEnabled').checked = !!s.pinEnabled;
+    document.getElementById('set-themeMode').value = SettingsTools.normalizeThemeMode(s.themeMode);
+    // Show the TRUTH: the app only locks when the flag is on AND a usable 4-digit PIN is saved (the rule app.js uses)
+    const pinLockActive = SettingsTools.isPinLockEffective(s);
+    document.getElementById('set-pinEnabled').checked = pinLockActive;
+    if (s.pinEnabled && !pinLockActive) {
+        const warn = document.getElementById('pinWarning');
+        warn.textContent = '⚠ PIN lock is not active: no valid 4-digit PIN is saved. Enter a PIN and save to turn it on, or save with the box unticked.';
+        warn.style.display = 'block';
+    }
 
     const renderDeliverables = () => {
         document.getElementById('set-deliverablesList').innerHTML = (s.deliverables || []).map((d, i) => `
@@ -547,18 +705,35 @@ window.appRouter.addRoute('settings', async () => {
     };
 
     document.getElementById('savePrefsBtn').onclick = async () => {
-        s.darkMode = document.getElementById('set-darkMode').checked;
-        s.pinEnabled = document.getElementById('set-pinEnabled').checked;
-        const pin = document.getElementById('set-appPin').value.trim();
-        if (pin && /^\d{4}$/.test(pin)) {
-            s.pin = pin;
-            document.getElementById('set-appPin').value = ""; // clear after save
-        } else if (pin) {
-            alert("PIN must be exactly 4 digits.");
+        // 1. Decide first. Nothing in memory or in the database is touched unless the whole form is acceptable.
+        const decision = SettingsTools.resolvePinPreference({
+            wantEnabled: document.getElementById('set-pinEnabled').checked,
+            enteredPin: document.getElementById('set-appPin').value,
+            storedPin: s.pin
+        });
+        if (!decision.ok) {
+            alert(decision.message + "\nNothing was changed.");
             return;
         }
-        await window.AppState.saveSettings();
-        alert("Preferences saved.");
+
+        // 2. Apply and save; if the save fails, put the previous values back so memory never disagrees with the database
+        const previous = { themeMode: s.themeMode, pinEnabled: s.pinEnabled, pin: s.pin };
+        try {
+            s.themeMode = SettingsTools.normalizeThemeMode(document.getElementById('set-themeMode').value);
+            s.pinEnabled = decision.enabled;
+            s.pin = decision.pin;
+            await window.AppState.saveSettings();
+        } catch (err) {
+            console.error("Saving preferences failed:", err);
+            s.themeMode = previous.themeMode;
+            s.pinEnabled = previous.pinEnabled;
+            s.pin = previous.pin;
+            alert("Preferences could not be saved. Nothing was changed.");
+            return;
+        }
+        document.getElementById('set-appPin').value = ""; // never leave the PIN on screen
+        document.getElementById('pinWarning').style.display = 'none';
+        alert("Preferences saved. " + decision.summary);
     };
 
     document.getElementById('addDelBtn').onclick = async () => {
@@ -590,7 +765,13 @@ window.appRouter.addRoute('settings', async () => {
 });
 
 window.appRouter.addRoute('data', async () => {
- const container = document.getElementById('page-data');
+    // Tell the user exactly what the global date filter does on this page (CSV: filtered, JSON backup: never)
+    const activeFilter = window.AppFilter && window.AppFilter.active ? window.AppFilter : null;
+    const filterNote = activeFilter
+        ? 'Date filter is ON (' + BackupTools.describeDateFilter(activeFilter) + '): CSV exports include only records inside this range. The JSON backup is always complete.'
+        : 'No date filter: CSV exports include every record.';
+
+    const container = document.getElementById('page-data');
     if(!container) {
         const main = document.querySelector('main');
         const p = document.createElement('section');
@@ -617,6 +798,7 @@ window.appRouter.addRoute('data', async () => {
             <div id="dataStatus" role="status" aria-live="polite" style="display:none; margin-top:15px; padding:10px 12px; border-radius:10px; font-size:13px; font-weight:600; white-space:pre-wrap; word-break:break-word"></div>
 
             <h3 style="margin-top:30px; border-top:1px solid var(--line); padding-top:15px">Export CSV Data</h3>
+            <div id="dataFilterNote" style="font-size:12px; color:var(--muted); margin-bottom:10px">${escapeHTML(filterNote)}</div>
             <div style="display:flex; gap:10px; flex-wrap:wrap">
                 <button class="btn small" data-csv="clients">Clients</button>
                 <button class="btn small" data-csv="quotes">Quotes</button>
@@ -674,8 +856,8 @@ window.appRouter.addRoute('data', async () => {
         });
     }
 
-    function describeCounts(counts) { 
-      const parts = Object.keys(counts).filter(k => k !== 'settings' && counts[k] > 0).map(k => k + ': ' + counts[k]);
+    function describeCounts(counts) {
+        const parts = Object.keys(counts).filter(k => k !== 'settings' && counts[k] > 0).map(k => k + ': ' + counts[k]);
         return parts.length ? parts.join(', ') : 'no business records';
     }
 
@@ -694,7 +876,8 @@ window.appRouter.addRoute('data', async () => {
 
             const blob = new Blob([JSON.stringify(backup, null, 2)], { type: "application/json" });
             const filename = `AutomationManager_Backup_${getTodayDate()}.json`;
-            const detail = 'Records — ' + describeCounts(check.counts) + '. API keys and PIN are NOT included in the file.';
+            const detail = 'Records — ' + describeCounts(check.counts) + '. API keys and PIN are NOT included in the file.' +
+                (window.AppFilter && window.AppFilter.active ? ' The date filter is NOT applied to backups: this file is complete.' : '');
             const outcome = await saveFileToDevice(blob, filename);
             const shown = describeSaveOutcome(outcome, filename, detail);
             setDataStatus(shown[0], shown[1]);
@@ -757,7 +940,7 @@ window.appRouter.addRoute('data', async () => {
     };
 
     // CSV Exports
-  document.getElementById('page-data').onclick = async (e) => {
+    document.getElementById('page-data').onclick = async (e) => {
         const btn = e.target && e.target.closest ? e.target.closest('[data-csv]') : null;
         if (!btn) return;
         const type = btn.dataset.csv;
@@ -765,16 +948,26 @@ window.appRouter.addRoute('data', async () => {
         if (!label || dataBusy) return;
         dataBusy = true;
         try {
-            const data = await window.appDB.getAll(type);
+            const all = await window.appDB.getAll(type);
+            if (all.length === 0) {
+                setDataStatus('info', BackupTools.emptyCsvMessage(type)); // the list itself is empty
+                return;
+            }
+            // CSV follows the global date filter (same fields and rules as the on-screen lists); the JSON backup never does
+            const filterActive = !!(window.AppFilter && window.AppFilter.active);
+            const data = filterActive ? filterDataByDate(all, BackupTools.CSV_DATE_FIELDS[type]) : all;
             if (data.length === 0) {
-                setDataStatus('info', BackupTools.emptyCsvMessage(type));
+                setDataStatus('info', BackupTools.emptyFilteredCsvMessage(type, all.length)); // records exist, none inside the range
                 return;
             }
             const csv = BackupTools.buildCsv(data);
             const blob = new Blob([csv.text], { type: "text/csv" });
             const filename = `Automation_${type}_${getTodayDate()}.csv`;
             const outcome = await saveFileToDevice(blob, filename);
-            const shown = describeSaveOutcome(outcome, filename, label + ': ' + csv.rowCount + ' record(s), ' + csv.headers.length + ' column(s).');
+            const detail = filterActive
+                ? label + ': ' + data.length + ' of ' + all.length + ' record(s) in the selected date range (' + BackupTools.describeDateFilter(window.AppFilter) + '), ' + csv.headers.length + ' column(s).'
+                : label + ': ' + csv.rowCount + ' record(s), ' + csv.headers.length + ' column(s).';
+            const shown = describeSaveOutcome(outcome, filename, detail);
             setDataStatus(shown[0], shown[1]);
         } catch (err) {
             console.error('CSV export failed:', err);
@@ -849,7 +1042,7 @@ window.renderAiConnector = () => {
     const s = window.AppState.settings;
 
     // Bind initial values
-  document.getElementById('set-aiProvider').value = s.aiProvider || 'openai';
+    document.getElementById('set-aiProvider').value = s.aiProvider || 'openai';
     document.getElementById('set-aiApiKeyOpenAI').value = s.aiApiKeyOpenAI || '';
     document.getElementById('set-aiModelOpenAI').value = s.aiModelOpenAI || 'gpt-4o-mini';
     document.getElementById('set-aiApiKeyGemini').value = s.aiApiKeyGemini || '';
@@ -935,7 +1128,7 @@ window.renderAiConnector = () => {
                 });
 
                 if (!response.ok) {
-                  const errBody = await response.json().catch(()=>({}));
+                    const errBody = await response.json().catch(()=>({}));
 
                     if (response.status === 429) {
                         let retryMsg = "Gemini API quota/rate limit exceeded. Please check your Google AI Studio/API project quota or billing, then try again.";
@@ -998,4 +1191,3 @@ window.renderAiConnector = () => {
         }
     };
 };
-                  

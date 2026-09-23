@@ -121,7 +121,7 @@ function showInvoiceForm(clients) {
                         <option value="">Select a client...</option>
                         ${clients.map(c => `<option value="${c.id}">${escapeHTML(c.name)}</option>`).join('')}
                     </select>
-                    </div>
+                </div>
                 <div class="row">
                     <div class="field">
                         <label>Total Amount *</label>
@@ -228,7 +228,7 @@ function showPaymentForm(prefillInvId = null, invoices, clientMap) {
     if (!container) return; // safety
 
     container.innerHTML = `
-            <div class="card">
+        <div class="card">
             <div class="toolbar">
                 <h2 style="margin:0">Record Payment</h2>
             <button class="icon-btn global-filter-btn" title="Filter by Date">📅</button>
@@ -348,7 +348,7 @@ window.appRouter.addRoute('expenses', async () => {
 });
 
 function showExpenseForm() {
-      const container = document.getElementById('page-expenses');
+    const container = document.getElementById('page-expenses');
     container.innerHTML = `
         <div class="card">
             <div class="toolbar">
