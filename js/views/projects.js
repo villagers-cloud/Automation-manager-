@@ -69,7 +69,7 @@ window.appRouter.addRoute('projects', async () => {
 
     document.getElementById('projectSearch').addEventListener('input', (e) => {
         renderProjects(e.target.value);
-          });
+    });
 
     document.getElementById('newProjectBtn').onclick = () => showProjectForm();
 
@@ -180,7 +180,7 @@ async function showProjectForm(project = null) {
 }
 
 async function showProjectDetails(projectId) {
-      const project = await window.appDB.get('projects', projectId);
+    const project = await window.appDB.get('projects', projectId);
     if (!project) return window.appRouter.navigate('projects');
 
     let clientName = "No Client";
@@ -256,7 +256,7 @@ async function showProjectDetails(projectId) {
             </div>
         `).join('');
     };
-  renderTasks();
+    renderTasks();
 
     document.getElementById('addTaskBtn').onclick = () => {
         const title = prompt("Enter task title:");
@@ -367,7 +367,7 @@ window.appRouter.addRoute('tasks', async () => {
                 </div>
             </div>
         `).join('');
-      };
+    };
 
     renderTasks();
 
@@ -415,7 +415,7 @@ window.appRouter.addRoute('tasks', async () => {
 
 function showTaskForm(task, projects) {
     const isEdit = !!task;
-      const container = document.getElementById('page-tasks');
+    const container = document.getElementById('page-tasks');
 
     container.innerHTML = `
         <div class="card">
@@ -485,6 +485,3 @@ function showTaskForm(task, projects) {
         window.appRouter.navigate('tasks');
     };
 }
-  
-  
-    

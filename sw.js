@@ -1,4 +1,4 @@
-const CACHE_NAME = 'automation-manager-v2';
+const CACHE_NAME = 'automation-manager-v3';
 const ASSETS_TO_CACHE = [
   './',
   './index.html',
