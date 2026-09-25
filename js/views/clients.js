@@ -62,7 +62,7 @@ window.appRouter.addRoute('clients', async () => {
             const client = await window.appDB.get('clients', btn.dataset.editClient);
             showClientForm(client);
         } else if (btn.dataset.deleteClient) {
-            if (confirm("Are you sure you want to delete this client? Related data may be orphaned.")) {
+            if (await window.showConfirm("Are you sure you want to delete this client? Related data may be orphaned.")) {
                 await window.appDB.delete('clients', btn.dataset.deleteClient);
                 clients = await window.appDB.getAll('clients');
                 renderClients(document.getElementById('clientSearch').value);

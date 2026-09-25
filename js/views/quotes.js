@@ -88,7 +88,7 @@ window.appRouter.addRoute('quotes', async () => {
             const q = await window.appDB.get('quotes', btn.dataset.dupQuote);
             showQuoteForm(q, true);
         } else if (btn.dataset.deleteQuote) {
-            if (confirm("Delete this quote?")) {
+            if (await window.showConfirm("Delete this quote?")) {
                 await window.appDB.delete('quotes', btn.dataset.deleteQuote);
                 quotes = await window.appDB.getAll('quotes');
                 renderQuotes();
@@ -251,7 +251,7 @@ async function showQuoteForm(quote = null, isDuplicate = false) {
             // Inject into quote totals
             document.getElementById('qf-setup').value = (Number(document.getElementById('qf-setup').value) + s.setupPrice).toFixed(2);
             document.getElementById('qf-retainer').value = (Number(document.getElementById('qf-retainer').value) + s.monthlyPrice).toFixed(2);
-            // Optionally add as line item if it has hourly (ignoring for simplicity in quick setup)
+            // Optionally add as line item if it has hourly
             updateTotals();
         }
         e.target.value = ""; // reset select
@@ -319,14 +319,14 @@ async function showQuoteForm(quote = null, isDuplicate = false) {
 }
 
 // PDF Generation
-let __pdfGenerating = false; // prevents overlapping generatePdf() runs from fighting over the shared #pdfTemplate element
+let __pdfGenerating = false;
 
 async function generatePdf(q) {
     if (typeof html2pdf === "undefined") {
         alert("PDF library is unavailable offline. Wait for connection or ensure it is cached.");
         return;
     }
-    if (__pdfGenerating) return; // a PDF is already being generated; ignore a second click rather than corrupt the shared template
+    if (__pdfGenerating) return;
     __pdfGenerating = true;
 
     let clientName = q.clientNameTemp;
@@ -355,13 +355,13 @@ async function generatePdf(q) {
 
     template.innerHTML = `
         <div style="padding:42px; background:#fff; color:#222; font-family:Arial,sans-serif; width:794px;">
-            <div style="display:flex; justify-content:space-between; border-bottom:3px solid #5d9474; padding-bottom:20px; margin-bottom:24px">
+            <div style="display:flex; justify-content:space-between; border-bottom:3px solid var(--primary); padding-bottom:20px; margin-bottom:24px">
                 <div>
                     ${s.logoUrl ? `<img src="${s.logoUrl}" style="max-height:70px; max-width:180px; object-fit:contain">` : ''}
                     <h1 style="margin:8px 0 0; color:#222">${escapeHTML(s.agencyName)}</h1>
                 </div>
                 <div style="text-align:right">
-                    <div style="font-size:28px; font-weight:800; color:#416b59">INVOICE/QUOTE</div>
+                    <div style="font-size:28px; font-weight:800; color:var(--primary)">INVOICE/QUOTE</div>
                     <div>Ref: <strong>${escapeHTML(q.invoice)}</strong></div>
                     <div>Date: <span>${escapeHTML(q.date)}</span></div>
                 </div>
@@ -387,7 +387,7 @@ async function generatePdf(q) {
                 <div style="display:flex; justify-content:space-between; padding:6px">
                     <span>Tax (${s.taxRate}%)</span><strong>${formatMoney(tax, s.currency)}</strong>
                 </div>
-                <div style="display:flex; justify-content:space-between; padding:6px; font-size:18px; font-weight:800; border-top:2px solid #5d9474">
+                <div style="display:flex; justify-content:space-between; padding:6px; font-size:18px; font-weight:800; border-top:2px solid var(--primary)">
                     <span>Grand Total</span><strong>${formatMoney(total, s.currency)}</strong>
                 </div>
             </div>
@@ -413,8 +413,6 @@ async function generatePdf(q) {
         console.error('PDF generation failed:', err);
         alert("PDF generation failed: " + (err && err.message ? err.message : err) + "\nPlease try again.");
     } finally {
-        // Always runs, success or failure: #pdfTemplate is a page-level element (not scoped to any
-        // one view), so leaving it visible after an error would cover the entire app, not just this page.
         template.style.display = 'none';
         template.innerHTML = '';
         __pdfGenerating = false;

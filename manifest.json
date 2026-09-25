@@ -4,8 +4,8 @@
   "description": "Offline-first Automation Business Management App",
   "start_url": "./index.html",
   "display": "standalone",
-  "background_color": "#f5f4ef",
-  "theme_color": "#5d9474",
+  "background_color": "#F8FAFC",
+  "theme_color": "#1E40AF",
   "icons": [
     {
       "src": "assets/icon-192.png",

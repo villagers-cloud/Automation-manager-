@@ -979,8 +979,7 @@ window.appRouter.addRoute('data', async () => {
 
     // Reset App
     document.getElementById('resetAppBtn').onclick = async () => {
-        const pin = prompt("WARNING: This will delete ALL data. Type 'DELETE' to confirm:");
-        if (pin === 'DELETE') {
+        if (await window.showConfirm("WARNING: This will permanently delete ALL data on this device and reset the application. Are you sure you want to proceed?")) {
             const stores = ['settings', 'clients', 'services', 'quotes', 'projects', 'tasks', 'invoices', 'payments', 'expenses', 'team', 'notes', 'activity'];
             for(let s of stores) {
                 try { await window.appDB.clear(s); } catch(e){}
