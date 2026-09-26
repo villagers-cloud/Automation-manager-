@@ -54,7 +54,7 @@ window.appRouter.addRoute('services', async () => {
             const service = await window.appDB.get('services', btn.dataset.editService);
             showServiceForm(service);
         } else if (btn.dataset.deleteService) {
-            if (confirm("Delete this service from the catalog?")) {
+            if (await window.showConfirm("Delete this service from the catalog?")) {
                 await window.appDB.delete('services', btn.dataset.deleteService);
                 services = await window.appDB.getAll('services');
                 renderServices();

@@ -81,7 +81,7 @@ window.appRouter.addRoute('projects', async () => {
             const p = await window.appDB.get('projects', btn.dataset.editProject);
             showProjectForm(p);
         } else if (btn.dataset.deleteProject) {
-            if (confirm("Delete this project? Associated tasks will be orphaned.")) {
+            if (await window.showConfirm("Delete this project? Associated tasks will be orphaned.")) {
                 await window.appDB.delete('projects', btn.dataset.deleteProject);
                 projects = await window.appDB.getAll('projects');
                 renderProjects();
@@ -228,7 +228,10 @@ async function showProjectDetails(projectId) {
         <div class="card">
             <div class="toolbar">
                 <h3 style="margin:0">Tasks</h3>
-                <button class="btn small" id="addTaskBtn">+ Add Task</button>
+            </div>
+            <div id="inlineAddTaskForm" style="display:flex; gap:8px; margin-bottom:15px;">
+                <input id="projNewTaskTitle" placeholder="Enter task title..." style="flex:1;">
+                <button class="btn primary small" id="projAddBtn">+ Add Task</button>
             </div>
             <div id="projTaskList"></div>
         </div>
@@ -258,21 +261,22 @@ async function showProjectDetails(projectId) {
     };
     renderTasks();
 
-    document.getElementById('addTaskBtn').onclick = () => {
-        const title = prompt("Enter task title:");
+    document.getElementById('projAddBtn').onclick = async () => {
+        const input = document.getElementById('projNewTaskTitle');
+        const title = input.value.trim();
         if (title) {
             const task = {
                 id: generateId(),
                 projectId: project.id,
                 clientId: project.clientId,
-                title: title.trim(),
+                title: title,
                 status: 'Pending',
                 dueDate: ''
             };
-            window.appDB.put('tasks', task).then(() => {
-                allTasks.push(task);
-                renderTasks();
-            });
+            await window.appDB.put('tasks', task);
+            allTasks.push(task);
+            input.value = '';
+            renderTasks();
         }
     };
 
@@ -290,7 +294,7 @@ async function showProjectDetails(projectId) {
 
     document.getElementById('projTaskList').addEventListener('click', async (e) => {
         if (e.target.dataset.delTask) {
-            if (confirm("Delete this task?")) {
+            if (await window.showConfirm("Delete this task?")) {
                 const taskId = e.target.dataset.delTask;
                 await window.appDB.delete('tasks', taskId);
                 const index = allTasks.findIndex(t => t.id === taskId);
@@ -322,9 +326,6 @@ window.appRouter.addRoute('tasks', async () => {
     `;
 
     const tasks = await window.appDB.getAll('tasks');
-    // Projects are only a LOOKUP on this page (project names on the task rows + the "Project Link" list of the task form),
-    // so they must NOT be date-filtered: a hidden project would show as "Unknown" and, when its task is edited,
-    // the missing option would silently unlink the task from its project and client.
     const projects = await window.appDB.getAll('projects');
 
     // Pre-map project names
@@ -400,7 +401,7 @@ window.appRouter.addRoute('tasks', async () => {
         if (!btn) return;
 
         if (btn.dataset.globalDel) {
-            if (confirm("Delete this task?")) {
+            if (await window.showConfirm("Delete this task?")) {
                 await window.appDB.delete('tasks', btn.dataset.globalDel);
                 const index = tasks.findIndex(t => t.id === btn.dataset.globalDel);
                 if (index > -1) tasks.splice(index, 1);

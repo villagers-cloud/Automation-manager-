@@ -52,7 +52,7 @@ window.appRouter.addRoute('team', async () => {
             const member = await window.appDB.get('team', btn.dataset.editTeam);
             showTeamForm(member);
         } else if (btn.dataset.delTeam) {
-            if (confirm('Delete this team member?')) {
+            if (await window.showConfirm('Delete this team member?')) {
                 await window.appDB.delete('team', btn.dataset.delTeam);
                 team = await window.appDB.getAll('team');
                 renderTeam();
@@ -160,7 +160,10 @@ window.appRouter.addRoute('notes', async () => {
                         <div class="list-item-meta">${new Date(n.created).toLocaleString()}</div>
                         <p style="margin-top:10px; font-size:14px; white-space:pre-wrap">${escapeHTML(n.content)}</p>
                     </div>
-                    <button class="btn small danger" data-del-note="${n.id}">X</button>
+                    <div class="list-item-actions">
+                        <button class="btn small" data-edit-note="${n.id}">Edit</button>
+                        <button class="btn small danger" data-del-note="${n.id}">X</button>
+                    </div>
                 </div>
             </div>
         `).join('');
@@ -168,29 +171,61 @@ window.appRouter.addRoute('notes', async () => {
 
     renderNotes();
 
-    document.getElementById('newNoteBtn').onclick = () => {
-        const title = prompt("Note Title:");
-        if (!title) return;
-        const content = prompt("Note Content:");
-        if (content !== null) {
-            window.appDB.put('notes', {
-                id: generateId(),
-                title: title.trim() || 'Untitled',
-                content: content.trim(),
-                created: new Date().toISOString()
-            }).then(() => {
-                window.appRouter.navigate('notes');
-            });
-        }
-    };
+    document.getElementById('newNoteBtn').onclick = () => showNoteForm();
 
     document.getElementById('noteList').onclick = async (e) => {
-        if (e.target.dataset.delNote) {
-            if (confirm("Delete this note?")) {
-                await window.appDB.delete('notes', e.target.dataset.delNote);
+        const btn = e.target.closest('button');
+        if (!btn) return;
+
+        if (btn.dataset.editNote) {
+            const note = notes.find(n => n.id === btn.dataset.editNote);
+            if (note) showNoteForm(note);
+        } else if (btn.dataset.delNote) {
+            if (await window.showConfirm("Delete this note?")) {
+                await window.appDB.delete('notes', btn.dataset.delNote);
                 notes = await window.appDB.getAll('notes');
                 renderNotes();
             }
         }
     };
 });
+
+function showNoteForm(note = null) {
+    const isEdit = !!note;
+    const container = document.getElementById('page-notes');
+    container.innerHTML = `
+        <div class="card">
+            <div class="toolbar">
+                <h2 style="margin:0">${isEdit ? 'Edit Note' : 'New Note'}</h2>
+            <button class="icon-btn global-filter-btn" title="Filter by Date">📅</button>
+                <button class="btn" id="cancelNoteBtn">Cancel</button>
+            </div>
+            <form id="noteForm">
+                <div class="field">
+                    <label>Title *</label>
+                    <input id="nf-title" required value="${isEdit ? escapeHTML(note.title) : ''}">
+                </div>
+                <div class="field">
+                    <label>Content</label>
+                    <textarea id="nf-content" style="min-height:120px">${isEdit ? escapeHTML(note.content) : ''}</textarea>
+                </div>
+                <div style="margin-top:15px">
+                    <button type="submit" class="btn green">Save Note</button>
+                </div>
+            </form>
+        </div>
+    `;
+
+    document.getElementById('cancelNoteBtn').onclick = () => window.appRouter.navigate('notes');
+    document.getElementById('noteForm').onsubmit = async (e) => {
+        e.preventDefault();
+        const data = {
+            id: isEdit ? note.id : generateId(),
+            title: document.getElementById('nf-title').value.trim() || 'Untitled',
+            content: document.getElementById('nf-content').value.trim(),
+            created: isEdit ? note.created : new Date().toISOString()
+        };
+        await window.appDB.put('notes', data);
+        window.appRouter.navigate('notes');
+    };
+}

@@ -71,7 +71,7 @@ window.appRouter.addRoute('invoices', async () => {
         if (!btn) return;
 
         if (btn.dataset.delInv) {
-            if (confirm('Delete invoice? Associated payments will remain but orphan.')) {
+            if (await window.showConfirm('Delete invoice? Associated payments will remain but orphan.')) {
                 await window.appDB.delete('invoices', btn.dataset.delInv);
                 allInvoices = await window.appDB.getAll('invoices');
                 invoices = filterDataByDate(allInvoices, 'date'); // keep the active date filter after deleting
@@ -93,7 +93,7 @@ function showInvoiceForm(clients) {
     if (s.defaultQuoteValidity) {
         const d = new Date();
         d.setDate(d.getDate() + Number(s.defaultQuoteValidity));
-        defaultDueDate = formatLocalDate(d); // local calendar date (toISOString() is UTC: off by one for e.g. India before 05:30)
+        defaultDueDate = formatLocalDate(d); // local calendar date
     }
 
     const container = document.getElementById('page-invoices');
@@ -176,8 +176,6 @@ window.appRouter.addRoute('payments', async () => {
 
     let payments = await window.appDB.getAll('payments');
     payments = filterDataByDate(payments, 'date');
-    // Invoices are only a LOOKUP here (invoice numbers on the payment rows + the invoice list of the payment form),
-    // so they must NOT be date-filtered: a payment inside the selected period can belong to an older invoice.
     const invoices = await window.appDB.getAll('invoices');
     const clients = await window.appDB.getAll('clients');
 
@@ -214,9 +212,9 @@ window.appRouter.addRoute('payments', async () => {
 
     document.getElementById('payList').onclick = async (e) => {
         if (e.target.dataset.delPay) {
-            if (confirm('Delete this payment record?')) {
+            if (await window.showConfirm('Delete this payment record?')) {
                 await window.appDB.delete('payments', e.target.dataset.delPay);
-                payments = filterDataByDate(await window.appDB.getAll('payments'), 'date'); // keep the active date filter after deleting
+                payments = filterDataByDate(await window.appDB.getAll('payments'), 'date');
                 renderPayments();
             }
         }
@@ -225,7 +223,7 @@ window.appRouter.addRoute('payments', async () => {
 
 function showPaymentForm(prefillInvId = null, invoices, clientMap) {
     const container = document.getElementById('page-invoices') || document.getElementById('page-payments');
-    if (!container) return; // safety
+    if (!container) return;
 
     container.innerHTML = `
         <div class="card">
@@ -340,7 +338,7 @@ window.appRouter.addRoute('expenses', async () => {
         if (e.target.dataset.delExp) {
             if (await window.showConfirm('Delete this expense?')) {
                 await window.appDB.delete('expenses', e.target.dataset.delExp);
-                expenses = filterDataByDate(await window.appDB.getAll('expenses'), 'date'); // keep the active date filter after deleting
+                expenses = filterDataByDate(await window.appDB.getAll('expenses'), 'date');
                 renderExpenses();
             }
         }
