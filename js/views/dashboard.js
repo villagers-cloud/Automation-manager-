@@ -2,6 +2,22 @@ window.appRouter.addRoute('dashboard', async () => {
     const container = document.getElementById('page-dashboard');
     container.innerHTML = `
       <div class="grid">
+        <!-- Contextual Help -->
+        <div class="col-12">
+            <div class="help-box" style="padding:12px 14px; background:var(--primary-soft); border-radius:12px; font-size:13px; line-height:1.4;">
+                <details>
+                    <summary style="font-weight:700; cursor:pointer; color:var(--primary);">ℹ How Dashboard Works</summary>
+                    <div style="margin-top:8px;">
+                        <strong>WHAT IT DOES:</strong> Displays real-time executive summaries of your active quotes, retainer MRR, and expected profits.<br>
+                        <strong>INPUT:</strong> Calculated automatically from your real saved quote, project, and billing records.<br>
+                        <strong>PROCESS:</strong> Aggregates approved retainer fees and expected profit margins across saved records.<br>
+                        <strong>OUTPUT:</strong> At-a-glance business KPIs and direct quick actions.<br>
+                        <div style="margin-top:4px; font-style:italic;"><strong>EXAMPLE:</strong> Approved Quotes = 2 (Retainer = ₹25,000 each) → Dashboard displays MRR = ₹50,000 based on actual saved records.</div>
+                    </div>
+                </details>
+            </div>
+        </div>
+
         <div class="col-12">
           <div class="metrics">
             <div class="metric">
@@ -22,14 +38,13 @@ window.appRouter.addRoute('dashboard', async () => {
           <div class="toolbar">
             <h2 style="margin:0">Recent Quotes</h2>
             <button class="icon-btn global-filter-btn" title="Filter by Date">📅</button>
-            <button class="btn primary" data-navigate="quotes">+ New Quote</button>
+            <button class="btn primary" data-navigate="quotes:new">+ New Quote</button>
           </div>
           <div id="dashRecentQuotes">Loading...</div>
         </div>
       </div>
     `;
 
-    // Fetch dashboard data
     let quotes = await window.appDB.getAll('quotes');
     quotes = filterDataByDate(quotes, 'date');
 
@@ -41,7 +56,6 @@ window.appRouter.addRoute('dashboard', async () => {
             mrr += (Number(q.retainer) || 0);
         }
 
-        // Quick recalc logic from old app
         const setup = Number(q.setupFee) || 0;
         const retainer = Number(q.retainer) || 0;
         const billable = (q.expenses || []).filter(e => e.billToClient).reduce((s, e) => s + (Number(e.amount) || 0), 0);
@@ -59,12 +73,11 @@ window.appRouter.addRoute('dashboard', async () => {
     const healthEl = document.getElementById('dashHealth');
     if (healthEl) healthEl.classList.toggle('loss', expectedProfit < 0);
 
-    // Render Recent Quotes
     const recentQuotes = quotes.sort((a,b) => new Date(b.created) - new Date(a.created)).slice(0, 5);
     const quotesContainer = document.getElementById('dashRecentQuotes');
 
     if (recentQuotes.length === 0) {
-        quotesContainer.innerHTML = '<div class="empty">No quotes created yet.</div>';
+        quotesContainer.innerHTML = '<div class="empty">No quotes created yet. Click + New Quote to create one.</div>';
     } else {
         quotesContainer.innerHTML = recentQuotes.map(q => `
             <div class="list-item">

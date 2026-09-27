@@ -1,28 +1,60 @@
 // Clients View
-window.appRouter.addRoute('clients', async () => {
+window.appRouter.addRoute('clients', async (fullRoute) => {
+    const parts = (fullRoute || 'clients').split(':');
+    const subAction = parts[1];
+    const id = parts[2];
+
+    if (subAction === 'new') {
+        await showClientForm();
+    } else if (subAction === 'edit' && id) {
+        const client = await window.appDB.get('clients', id);
+        if (!client) return window.appRouter.navigate('clients');
+        await showClientForm(client);
+    } else if (subAction === 'view' && id) {
+        await showClientProfile(id);
+    } else {
+        await renderClientsList();
+    }
+});
+
+async function renderClientsList() {
     const container = document.getElementById('page-clients');
     container.innerHTML = `
         <div class="card">
             <div class="toolbar">
                 <h2 style="margin:0">Clients</h2>
-            <button class="icon-btn global-filter-btn" title="Filter by Date">📅</button>
+                <button class="icon-btn global-filter-btn" title="Filter by Date">📅</button>
                 <input class="search" id="clientSearch" placeholder="Search clients...">
                 <button class="btn primary" id="newClientBtn">+ New Client</button>
             </div>
+
+            <!-- Contextual Help -->
+            <div class="help-box" style="margin-bottom:15px; padding:12px 14px; background:var(--primary-soft); border-radius:12px; font-size:13px; line-height:1.4;">
+                <details>
+                    <summary style="font-weight:700; cursor:pointer; color:var(--primary);">ℹ How Clients Work</summary>
+                    <div style="margin-top:8px;">
+                        <strong>WHAT IT DOES:</strong> Creates and manages customer records and contact information.<br>
+                        <strong>INPUT:</strong> Customer name, phone, email, status, and company details.<br>
+                        <strong>PROCESS:</strong> Information is validated and stored locally in IndexedDB.<br>
+                        <strong>OUTPUT:</strong> Client appears in list and becomes selectable when creating quotes, projects, and invoices.<br>
+                        <div style="margin-top:4px; font-style:italic;"><strong>EXAMPLE:</strong> Create "ABC Auto Service" → Save → Select "ABC Auto Service" when creating a Quote or Invoice.</div>
+                    </div>
+                </details>
+            </div>
+
             <div id="clientList">Loading...</div>
         </div>
     `;
 
-    // Fetch and render
     let clients = await window.appDB.getAll('clients');
     clients = filterDataByDate(clients, 'dateAdded');
 
-    const renderClients = (filter = "") => {
+    const render = (filter = "") => {
         const list = clients.filter(c => c.name.toLowerCase().includes(filter.toLowerCase()));
         const listContainer = document.getElementById('clientList');
 
         if (list.length === 0) {
-            listContainer.innerHTML = '<div class="empty">No clients found.</div>';
+            listContainer.innerHTML = '<div class="empty">No clients found. Add your first client to get started.</div>';
             return;
         }
 
@@ -33,6 +65,7 @@ window.appRouter.addRoute('clients', async () => {
                         <div class="list-item-title">${escapeHTML(c.name)}</div>
                         ${c.company ? `<div class="list-item-meta">${escapeHTML(c.company)}</div>` : ''}
                     </div>
+                    <span style="font-size:11px; font-weight:700; padding:3px 8px; border-radius:6px; background:var(--bg); color:var(--text);">${escapeHTML(c.status || 'Active')}</span>
                 </div>
                 <div class="list-item-actions">
                     <button class="btn small" data-view-client="${c.id}">View Profile</button>
@@ -43,45 +76,43 @@ window.appRouter.addRoute('clients', async () => {
         `).join('');
     };
 
-    renderClients();
+    render();
 
     document.getElementById('clientSearch').addEventListener('input', (e) => {
-        renderClients(e.target.value);
+        render(e.target.value);
     });
 
     document.getElementById('newClientBtn').onclick = () => {
-        showClientForm();
+        window.appRouter.navigate('clients:new');
     };
 
-    // Delegate list clicks
     document.getElementById('clientList').onclick = async (e) => {
         const btn = e.target.closest('button');
         if (!btn) return;
 
         if (btn.dataset.editClient) {
-            const client = await window.appDB.get('clients', btn.dataset.editClient);
-            showClientForm(client);
+            window.appRouter.navigate(`clients:edit:${btn.dataset.editClient}`);
         } else if (btn.dataset.deleteClient) {
             if (await window.showConfirm("Are you sure you want to delete this client? Related data may be orphaned.")) {
                 await window.appDB.delete('clients', btn.dataset.deleteClient);
                 clients = await window.appDB.getAll('clients');
-                renderClients(document.getElementById('clientSearch').value);
+                render(document.getElementById('clientSearch').value);
             }
         } else if (btn.dataset.viewClient) {
-            showClientProfile(btn.dataset.viewClient);
+            window.appRouter.navigate(`clients:view:${btn.dataset.viewClient}`);
         }
     };
-});
+}
 
-function showClientForm(client = null) {
+async function showClientForm(client = null) {
     const isEdit = !!client;
     const container = document.getElementById('page-clients');
     container.innerHTML = `
         <div class="card">
             <div class="toolbar">
-                <h2 style="margin:0">${isEdit ? 'Edit Client' : 'New Client'}</h2>
-            <button class="icon-btn global-filter-btn" title="Filter by Date">📅</button>
-                <button class="btn" id="cancelClientBtn">Cancel</button>
+                <button type="button" class="btn back-btn" id="backClientFormBtn">← Back</button>
+                <h2 style="margin:0; flex:1; text-align:center;">${isEdit ? 'Edit Client' : 'New Client'}</h2>
+                <button class="icon-btn global-filter-btn" title="Filter by Date">📅</button>
             </div>
             <form id="clientForm">
                 <div class="row">
@@ -126,14 +157,17 @@ function showClientForm(client = null) {
                     <label>Notes</label>
                     <textarea id="cf-notes">${isEdit ? escapeHTML(client.notes) : ''}</textarea>
                 </div>
-                <div style="margin-top:15px">
-                    <button type="submit" class="btn green">Save Client</button>
+                <div style="margin-top:15px; display:flex; gap:10px;">
+                    <button type="submit" class="btn green" style="flex:1;">Save Client</button>
+                    <button type="button" class="btn" id="cancelClientBtn">Cancel</button>
                 </div>
             </form>
         </div>
     `;
 
-    document.getElementById('cancelClientBtn').onclick = () => window.appRouter.navigate('clients');
+    document.getElementById('backClientFormBtn').onclick = () => window.appRouter.back();
+    document.getElementById('cancelClientBtn').onclick = () => window.appRouter.back();
+
     document.getElementById('clientForm').onsubmit = async (e) => {
         e.preventDefault();
         const data = {
@@ -149,6 +183,7 @@ function showClientForm(client = null) {
             dateAdded: isEdit ? client.dateAdded : new Date().toISOString()
         };
         await window.appDB.put('clients', data);
+        window.appRouter.isFormDirty = false;
         window.appRouter.navigate('clients');
     };
 }
@@ -157,7 +192,6 @@ async function showClientProfile(clientId) {
     const client = await window.appDB.get('clients', clientId);
     if (!client) return window.appRouter.navigate('clients');
 
-    // Quick load related entities
     const projects = await window.appDB.getByIndex('projects', 'clientId', clientId);
     const quotes = await window.appDB.getByIndex('quotes', 'clientId', clientId);
     const invoices = await window.appDB.getByIndex('invoices', 'clientId', clientId);
@@ -166,7 +200,8 @@ async function showClientProfile(clientId) {
     container.innerHTML = `
         <div class="card">
             <div class="toolbar">
-                <button class="btn" id="backToClients">← Back</button>
+                <button type="button" class="btn back-btn" id="backToClients">← Back</button>
+                <h2 style="margin:0; flex:1; text-align:center;">Client Profile</h2>
                 <button class="btn primary" id="editProfileBtn">Edit Profile</button>
             </div>
 
@@ -212,8 +247,8 @@ async function showClientProfile(clientId) {
         </div>
     `;
 
-    document.getElementById('backToClients').onclick = () => window.appRouter.navigate('clients');
-    document.getElementById('editProfileBtn').onclick = () => showClientForm(client);
+    document.getElementById('backToClients').onclick = () => window.appRouter.back();
+    document.getElementById('editProfileBtn').onclick = () => window.appRouter.navigate(`clients:edit:${client.id}`);
 }
 
 function calcExpected(q) {

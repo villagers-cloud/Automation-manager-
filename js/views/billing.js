@@ -1,18 +1,47 @@
 // Simple Invoice View
-window.appRouter.addRoute('invoices', async () => {
+window.appRouter.addRoute('invoices', async (fullRoute) => {
+    const parts = (fullRoute || 'invoices').split(':');
+    const subAction = parts[1];
+
+    if (subAction === 'new') {
+        const clients = await window.appDB.getAll('clients');
+        await showInvoiceForm(clients);
+    } else {
+        await renderInvoicesList();
+    }
+});
+
+async function renderInvoicesList() {
     const container = document.getElementById('page-invoices');
     container.innerHTML = `
         <div class="card">
             <div class="toolbar">
-                <h2 style="margin:0">Invoices</h2>
-            <button class="icon-btn global-filter-btn" title="Filter by Date">📅</button>
+                <button type="button" class="btn back-btn" id="backInvoicesBtn">← Back</button>
+                <h2 style="margin:0; flex:1; text-align:center;">Invoices</h2>
+                <button class="icon-btn global-filter-btn" title="Filter by Date">📅</button>
                 <button class="btn primary" id="newInvBtn">+ New Invoice</button>
             </div>
+
+            <!-- Contextual Help -->
+            <div class="help-box" style="margin-bottom:15px; padding:12px 14px; background:var(--primary-soft); border-radius:12px; font-size:13px; line-height:1.4;">
+                <details>
+                    <summary style="font-weight:700; cursor:pointer; color:var(--primary);">ℹ How Invoices Work</summary>
+                    <div style="margin-top:8px;">
+                        <strong>WHAT IT DOES:</strong> Requests payment for completed or scheduled business work.<br>
+                        <strong>INPUT:</strong> Invoice number, date, client, total amount, due date, and item notes.<br>
+                        <strong>PROCESS:</strong> Payments are matched against invoice totals to calculate outstanding balances.<br>
+                        <strong>OUTPUT:</strong> Clear invoice tracking (Paid, Partial, Unpaid) and revenue records.<br>
+                        <div style="margin-top:4px; font-style:italic;"><strong>EXAMPLE:</strong> Invoice = ₹10,000 → Payment received = ₹6,000 → Status = Partial (Remaining: ₹4,000).</div>
+                    </div>
+                </details>
+            </div>
+
             <div id="invList">Loading...</div>
         </div>
     `;
 
-    // allInvoices = every invoice (needed by the payment form); invoices = the date-filtered list shown on this page
+    document.getElementById('backInvoicesBtn').onclick = () => window.appRouter.back();
+
     let allInvoices = await window.appDB.getAll('invoices');
     let invoices = filterDataByDate(allInvoices, 'date');
     let payments = await window.appDB.getAll('payments');
@@ -23,7 +52,7 @@ window.appRouter.addRoute('invoices', async () => {
     const renderInvoices = () => {
         const list = document.getElementById('invList');
         if (invoices.length === 0) {
-            list.innerHTML = '<div class="empty">No invoices found.</div>';
+            list.innerHTML = '<div class="empty">No invoices found. Create your first invoice to get started.</div>';
             return;
         }
 
@@ -64,7 +93,7 @@ window.appRouter.addRoute('invoices', async () => {
 
     renderInvoices();
 
-    document.getElementById('newInvBtn').onclick = () => showInvoiceForm(clients);
+    document.getElementById('newInvBtn').onclick = () => window.appRouter.navigate('invoices:new');
 
     document.getElementById('invList').onclick = async (e) => {
         const btn = e.target.closest('button');
@@ -74,35 +103,34 @@ window.appRouter.addRoute('invoices', async () => {
             if (await window.showConfirm('Delete invoice? Associated payments will remain but orphan.')) {
                 await window.appDB.delete('invoices', btn.dataset.delInv);
                 allInvoices = await window.appDB.getAll('invoices');
-                invoices = filterDataByDate(allInvoices, 'date'); // keep the active date filter after deleting
+                invoices = filterDataByDate(allInvoices, 'date');
                 renderInvoices();
             }
         } else if (btn.dataset.payInv) {
-            showPaymentForm(btn.dataset.payInv, allInvoices, clientMap);
+            window.appRouter.navigate(`payments:new:${btn.dataset.payInv}`);
         }
     };
-});
+}
 
-function showInvoiceForm(clients) {
+async function showInvoiceForm(clients) {
     const s = window.AppState.settings;
     const nPrefix = s.invoicePrefix || "INV";
     const defaultNotes = s.defaultTerms ? s.defaultTerms + (s.footerText ? '\n\n' + s.footerText : '') : '';
 
-    // Default due date logic based on validity
     let defaultDueDate = "";
     if (s.defaultQuoteValidity) {
         const d = new Date();
         d.setDate(d.getDate() + Number(s.defaultQuoteValidity));
-        defaultDueDate = formatLocalDate(d); // local calendar date
+        defaultDueDate = formatLocalDate(d);
     }
 
     const container = document.getElementById('page-invoices');
     container.innerHTML = `
         <div class="card">
             <div class="toolbar">
-                <h2 style="margin:0">New Invoice</h2>
-            <button class="icon-btn global-filter-btn" title="Filter by Date">📅</button>
-                <button class="btn" id="cancelInvBtn">Cancel</button>
+                <button type="button" class="btn back-btn" id="backInvFormBtn">← Back</button>
+                <h2 style="margin:0; flex:1; text-align:center;">New Invoice</h2>
+                <button class="icon-btn global-filter-btn" title="Filter by Date">📅</button>
             </div>
             <form id="invForm">
                 <div class="row">
@@ -136,14 +164,17 @@ function showInvoiceForm(clients) {
                     <label>Notes / Items description</label>
                     <textarea id="if-notes" style="min-height: 120px;">${escapeHTML(defaultNotes)}</textarea>
                 </div>
-                <div style="margin-top:15px">
-                    <button type="submit" class="btn green">Save Invoice</button>
+                <div style="margin-top:15px; display:flex; gap:10px;">
+                    <button type="submit" class="btn green" style="flex:1;">Save Invoice</button>
+                    <button type="button" class="btn" id="cancelInvBtn">Cancel</button>
                 </div>
             </form>
         </div>
     `;
 
-    document.getElementById('cancelInvBtn').onclick = () => window.appRouter.navigate('invoices');
+    document.getElementById('backInvFormBtn').onclick = () => window.appRouter.back();
+    document.getElementById('cancelInvBtn').onclick = () => window.appRouter.back();
+
     document.getElementById('invForm').onsubmit = async (e) => {
         e.preventDefault();
         const inv = {
@@ -156,23 +187,58 @@ function showInvoiceForm(clients) {
             notes: document.getElementById('if-notes').value.trim()
         };
         await window.appDB.put('invoices', inv);
+        window.appRouter.isFormDirty = false;
         window.appRouter.navigate('invoices');
     };
 }
 
 // Payments View
-window.appRouter.addRoute('payments', async () => {
+window.appRouter.addRoute('payments', async (fullRoute) => {
+    const parts = (fullRoute || 'payments').split(':');
+    const subAction = parts[1];
+    const invId = parts[2];
+
+    if (subAction === 'new') {
+        const invoices = await window.appDB.getAll('invoices');
+        const clients = await window.appDB.getAll('clients');
+        const clientMap = {};
+        clients.forEach(c => clientMap[c.id] = c.name);
+        await showPaymentForm(invId, invoices, clientMap);
+    } else {
+        await renderPaymentsList();
+    }
+});
+
+async function renderPaymentsList() {
     const container = document.getElementById('page-payments');
     container.innerHTML = `
         <div class="card">
             <div class="toolbar">
-                <h2 style="margin:0">Payments</h2>
-            <button class="icon-btn global-filter-btn" title="Filter by Date">📅</button>
+                <button type="button" class="btn back-btn" id="backPaymentsBtn">← Back</button>
+                <h2 style="margin:0; flex:1; text-align:center;">Payments</h2>
+                <button class="icon-btn global-filter-btn" title="Filter by Date">📅</button>
                 <button class="btn primary" id="newPayBtn">+ Record Payment</button>
             </div>
+
+            <!-- Contextual Help -->
+            <div class="help-box" style="margin-bottom:15px; padding:12px 14px; background:var(--primary-soft); border-radius:12px; font-size:13px; line-height:1.4;">
+                <details>
+                    <summary style="font-weight:700; cursor:pointer; color:var(--primary);">ℹ How Payments Work</summary>
+                    <div style="margin-top:8px;">
+                        <strong>WHAT IT DOES:</strong> Records actual money received from clients against invoices.<br>
+                        <strong>INPUT:</strong> Linked invoice, payment amount, payment date, method, and reference notes.<br>
+                        <strong>PROCESS:</strong> Money received updates invoice status and business revenue reports.<br>
+                        <strong>OUTPUT:</strong> Accurate cash-basis revenue totals and outstanding balances.<br>
+                        <div style="margin-top:4px; font-style:italic;"><strong>EXAMPLE:</strong> Invoice = ₹10,000 → Payment = ₹6,000 → Received = ₹6,000, Outstanding = ₹4,000.</div>
+                    </div>
+                </details>
+            </div>
+
             <div id="payList">Loading...</div>
         </div>
     `;
+
+    document.getElementById('backPaymentsBtn').onclick = () => window.appRouter.back();
 
     let payments = await window.appDB.getAll('payments');
     payments = filterDataByDate(payments, 'date');
@@ -188,7 +254,7 @@ window.appRouter.addRoute('payments', async () => {
     const renderPayments = () => {
         const list = document.getElementById('payList');
         if (payments.length === 0) {
-            list.innerHTML = '<div class="empty">No payments recorded.</div>';
+            list.innerHTML = '<div class="empty">No payments recorded. Add your first payment to get started.</div>';
             return;
         }
 
@@ -208,7 +274,7 @@ window.appRouter.addRoute('payments', async () => {
 
     renderPayments();
 
-    document.getElementById('newPayBtn').onclick = () => showPaymentForm(null, invoices, clientMap);
+    document.getElementById('newPayBtn').onclick = () => window.appRouter.navigate('payments:new');
 
     document.getElementById('payList').onclick = async (e) => {
         if (e.target.dataset.delPay) {
@@ -219,18 +285,18 @@ window.appRouter.addRoute('payments', async () => {
             }
         }
     };
-});
+}
 
-function showPaymentForm(prefillInvId = null, invoices, clientMap) {
+async function showPaymentForm(prefillInvId = null, invoices, clientMap) {
     const container = document.getElementById('page-invoices') || document.getElementById('page-payments');
     if (!container) return;
 
     container.innerHTML = `
         <div class="card">
             <div class="toolbar">
-                <h2 style="margin:0">Record Payment</h2>
-            <button class="icon-btn global-filter-btn" title="Filter by Date">📅</button>
-                <button class="btn" id="cancelPayBtn">Cancel</button>
+                <button type="button" class="btn back-btn" id="backPayFormBtn">← Back</button>
+                <h2 style="margin:0; flex:1; text-align:center;">Record Payment</h2>
+                <button class="icon-btn global-filter-btn" title="Filter by Date">📅</button>
             </div>
             <form id="payForm">
                 <div class="field">
@@ -264,14 +330,16 @@ function showPaymentForm(prefillInvId = null, invoices, clientMap) {
                     <label>Notes</label>
                     <input id="pf-notes">
                 </div>
-                <div style="margin-top:15px">
-                    <button type="submit" class="btn green">Save Payment</button>
+                <div style="margin-top:15px; display:flex; gap:10px;">
+                    <button type="submit" class="btn green" style="flex:1;">Save Payment</button>
+                    <button type="button" class="btn" id="cancelPayBtn">Cancel</button>
                 </div>
             </form>
         </div>
     `;
 
-    document.getElementById('cancelPayBtn').onclick = () => prefillInvId ? window.appRouter.navigate('invoices') : window.appRouter.navigate('payments');
+    document.getElementById('backPayFormBtn').onclick = () => window.appRouter.back();
+    document.getElementById('cancelPayBtn').onclick = () => window.appRouter.back();
 
     document.getElementById('payForm').onsubmit = async (e) => {
         e.preventDefault();
@@ -284,23 +352,53 @@ function showPaymentForm(prefillInvId = null, invoices, clientMap) {
             notes: document.getElementById('pf-notes').value.trim()
         };
         await window.appDB.put('payments', pay);
+        window.appRouter.isFormDirty = false;
         prefillInvId ? window.appRouter.navigate('invoices') : window.appRouter.navigate('payments');
     };
 }
 
 // Expenses View
-window.appRouter.addRoute('expenses', async () => {
+window.appRouter.addRoute('expenses', async (fullRoute) => {
+    const parts = (fullRoute || 'expenses').split(':');
+    const subAction = parts[1];
+
+    if (subAction === 'new') {
+        await showExpenseForm();
+    } else {
+        await renderExpensesList();
+    }
+});
+
+async function renderExpensesList() {
     const container = document.getElementById('page-expenses');
     container.innerHTML = `
         <div class="card">
             <div class="toolbar">
-                <h2 style="margin:0">Expenses</h2>
-            <button class="icon-btn global-filter-btn" title="Filter by Date">📅</button>
+                <button type="button" class="btn back-btn" id="backExpensesBtn">← Back</button>
+                <h2 style="margin:0; flex:1; text-align:center;">Expenses</h2>
+                <button class="icon-btn global-filter-btn" title="Filter by Date">📅</button>
                 <button class="btn primary" id="newExpBtn">+ Add Expense</button>
             </div>
+
+            <!-- Contextual Help -->
+            <div class="help-box" style="margin-bottom:15px; padding:12px 14px; background:var(--primary-soft); border-radius:12px; font-size:13px; line-height:1.4;">
+                <details>
+                    <summary style="font-weight:700; cursor:pointer; color:var(--primary);">ℹ How Expenses Work</summary>
+                    <div style="margin-top:8px;">
+                        <strong>WHAT IT DOES:</strong> Logs business operational expenses and vendor costs.<br>
+                        <strong>INPUT:</strong> Expense name, amount, date, and category (Hosting, Software, Marketing, etc.).<br>
+                        <strong>PROCESS:</strong> Expense amounts reduce calculated net profit in reports.<br>
+                        <strong>OUTPUT:</strong> Expense summaries and net profit adjustments.<br>
+                        <div style="margin-top:4px; font-style:italic;"><strong>EXAMPLE:</strong> Expense: Hosting = ₹1,000 → Save → Reports update automatically to reflect reduced net profit.</div>
+                    </div>
+                </details>
+            </div>
+
             <div id="expList">Loading...</div>
         </div>
     `;
+
+    document.getElementById('backExpensesBtn').onclick = () => window.appRouter.back();
 
     let expenses = await window.appDB.getAll('expenses');
     expenses = filterDataByDate(expenses, 'date');
@@ -308,7 +406,7 @@ window.appRouter.addRoute('expenses', async () => {
     const renderExpenses = () => {
         const list = document.getElementById('expList');
         if (expenses.length === 0) {
-            list.innerHTML = '<div class="empty">No expenses recorded.</div>';
+            list.innerHTML = '<div class="empty">No expenses recorded. Add your first expense to get started.</div>';
             return;
         }
 
@@ -332,7 +430,7 @@ window.appRouter.addRoute('expenses', async () => {
 
     renderExpenses();
 
-    document.getElementById('newExpBtn').onclick = () => showExpenseForm();
+    document.getElementById('newExpBtn').onclick = () => window.appRouter.navigate('expenses:new');
 
     document.getElementById('expList').onclick = async (e) => {
         if (e.target.dataset.delExp) {
@@ -343,16 +441,16 @@ window.appRouter.addRoute('expenses', async () => {
             }
         }
     };
-});
+}
 
-function showExpenseForm() {
+async function showExpenseForm() {
     const container = document.getElementById('page-expenses');
     container.innerHTML = `
         <div class="card">
             <div class="toolbar">
-                <h2 style="margin:0">Add Expense</h2>
-            <button class="icon-btn global-filter-btn" title="Filter by Date">📅</button>
-                <button class="btn" id="cancelExpBtn">Cancel</button>
+                <button type="button" class="btn back-btn" id="backExpFormBtn">← Back</button>
+                <h2 style="margin:0; flex:1; text-align:center;">Add Expense</h2>
+                <button class="icon-btn global-filter-btn" title="Filter by Date">📅</button>
             </div>
             <form id="expForm">
                 <div class="field">
@@ -380,14 +478,17 @@ function showExpenseForm() {
                         <option>Other</option>
                     </select>
                 </div>
-                <div style="margin-top:15px">
-                    <button type="submit" class="btn green">Save Expense</button>
+                <div style="margin-top:15px; display:flex; gap:10px;">
+                    <button type="submit" class="btn green" style="flex:1;">Save Expense</button>
+                    <button type="button" class="btn" id="cancelExpBtn">Cancel</button>
                 </div>
             </form>
         </div>
     `;
 
-    document.getElementById('cancelExpBtn').onclick = () => window.appRouter.navigate('expenses');
+    document.getElementById('backExpFormBtn').onclick = () => window.appRouter.back();
+    document.getElementById('cancelExpBtn').onclick = () => window.appRouter.back();
+
     document.getElementById('expForm').onsubmit = async (e) => {
         e.preventDefault();
         const exp = {
@@ -398,6 +499,7 @@ function showExpenseForm() {
             category: document.getElementById('ef-category').value
         };
         await window.appDB.put('expenses', exp);
+        window.appRouter.isFormDirty = false;
         window.appRouter.navigate('expenses');
     };
 }

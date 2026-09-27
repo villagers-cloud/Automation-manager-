@@ -26,8 +26,8 @@ async function initApp() {
         if (window.AppState.settings.pinEnabled && /^\d{4}$/.test(window.AppState.settings.pin)) {
              document.getElementById('lockScreen').style.display = 'grid';
         } else {
-             // Navigate to Dashboard
-             window.appRouter.navigate('dashboard');
+             const startRoute = window.location.hash.slice(1) || 'dashboard';
+             await window.appRouter.navigate(startRoute, { replace: true });
         }
 
     } catch (e) {
@@ -47,7 +47,7 @@ function setupLockScreen() {
     dots.innerHTML = [0,1,2,3].map(i => `<span class="pin-dot" id="dot${i}"></span>`).join("");
     pinPad.innerHTML = [1,2,3,4,5,6,7,8,9,"⌫",0].map(k => `<button class="pin-key" data-pin="${k}">${k}</button>`).join("");
 
-    pinPad.querySelectorAll("[data-pin]").forEach(b => b.onclick = () => {
+    pinPad.querySelectorAll("[data-pin]").forEach(b => b.onclick = async () => {
       const k = b.dataset.pin;
       if(k === "⌫") pinInput = pinInput.slice(0,-1);
       else if(pinInput.length < 4) pinInput += k;
@@ -58,7 +58,8 @@ function setupLockScreen() {
         if(pinInput === window.AppState.settings.pin){
             document.getElementById("lockScreen").style.display = "none";
             pinInput = "";
-            window.appRouter.navigate('dashboard');
+            const startRoute = window.location.hash.slice(1) || 'dashboard';
+            await window.appRouter.navigate(startRoute, { replace: true });
         } else {
             document.getElementById("pinError").textContent = "Incorrect PIN";
             pinInput = "";
@@ -78,7 +79,7 @@ document.addEventListener('DOMContentLoaded', initApp);
 document.addEventListener('click', (e) => {
     const filterBtn = e.target.closest('.global-filter-btn');
     if (filterBtn) {
-        document.getElementById('filterMenuDrawer').classList.toggle('active');
+        window.appRouter.navigate('filterDrawer');
 
         // Populate inputs from state
         document.getElementById('filterFromDate').value = window.AppFilter.fromDate;
@@ -95,14 +96,11 @@ document.addEventListener('change', (e) => {
         const fromDateEl = document.getElementById('filterFromDate');
         const toDateEl = document.getElementById('filterToDate');
 
-        // Local calendar dates (see getDatePresetRange in helpers.js): never UTC, so "This month"
-        // starts on the 1st for users east of UTC (e.g. India) instead of the last day of the previous month.
         const range = getDatePresetRange(e.target.value);
         if (range) {
             fromDateEl.value = range.from;
             toDateEl.value = range.to;
         }
-        // custom - don't overwrite user changes
     }
 });
 
@@ -118,17 +116,15 @@ document.addEventListener('click', (e) => {
         window.AppFilter.apply(fromDate, toDate, fromTime, toTime, preset);
         document.getElementById('filterMenuDrawer').classList.remove('active');
 
-        // Re-render current route
         if (window.appRouter && window.appRouter.currentRoute) {
-            window.appRouter.navigate(window.appRouter.currentRoute);
+            window.appRouter.navigate(window.appRouter.currentRoute, { force: true });
         }
     } else if (e.target.id === 'clearFilterBtn') {
         window.AppFilter.clear();
         document.getElementById('filterMenuDrawer').classList.remove('active');
 
-        // Re-render current route
         if (window.appRouter && window.appRouter.currentRoute) {
-            window.appRouter.navigate(window.appRouter.currentRoute);
+            window.appRouter.navigate(window.appRouter.currentRoute, { force: true });
         }
     }
 });
@@ -137,18 +133,16 @@ document.addEventListener('click', (e) => {
 document.addEventListener('click', async (e) => {
     const themeBtn = e.target.closest('#themeBtn');
     if (themeBtn) {
-        // Simple toggle just flips light/dark, and unsets system
         const currentIsDark = document.documentElement.dataset.theme === 'dark';
         window.AppState.settings.themeMode = currentIsDark ? 'light' : 'dark';
         await window.AppState.saveSettings();
     }
 });
 
-
 // Update filter button state whenever route changes
 const originalNavigate = window.appRouter.navigate;
-window.appRouter.navigate = async function(name) {
-    await originalNavigate.call(this, name);
+window.appRouter.navigate = async function(name, options) {
+    await originalNavigate.call(this, name, options);
     document.querySelectorAll('.global-filter-btn').forEach(btn => {
         if (window.AppFilter.active) {
             btn.classList.add('active-filter');
