@@ -18,14 +18,12 @@ function escapeHTML(str) {
     }[m]));
 }
 
-// True for a real, valid Date object. Uses the internal class tag instead of `instanceof`,
-// which is unreliable across realms (iframes) and with subclassed/mocked Date constructors.
+// True for a real, valid Date object.
 function isValidDateObject(value) {
     return Object.prototype.toString.call(value) === '[object Date]' && !isNaN(value.getTime());
 }
 
-// Formats a Date as YYYY-MM-DD using the device's LOCAL calendar date.
-// (toISOString() is UTC: for a user in India, before 05:30 it returns YESTERDAY's date.)
+// Formats a Date as YYYY-MM-DD using local calendar date.
 function formatLocalDate(date) {
     if (!isValidDateObject(date)) return '';
     const y = String(date.getFullYear()).padStart(4, '0');
@@ -34,15 +32,12 @@ function formatLocalDate(date) {
     return `${y}-${m}-${d}`;
 }
 
-// Today's date (YYYY-MM-DD) on the user's device clock, in the user's timezone.
+// Today's date (YYYY-MM-DD) on local device clock.
 function getTodayDate() {
     return formatLocalDate(new Date());
 }
 
-// Date ranges for the global filter presets, as { from, to } (YYYY-MM-DD, local calendar dates).
-// Returns null for 'custom' / unknown presets (the user's own dates must not be overwritten).
-// Weeks start on Sunday. The calendar arithmetic is done on plain year/month/day numbers
-// (in UTC space) so it can never be shifted by the timezone or by daylight-saving changes.
+// Date ranges for global filter presets
 function getDatePresetRange(preset, now) {
     const ref = isValidDateObject(now) ? now : new Date();
     const y = ref.getFullYear(), m = ref.getMonth(), d = ref.getDate(), dow = ref.getDay();
@@ -66,8 +61,7 @@ function getDatePresetRange(preset, now) {
     }
 }
 
-// Default application settings. Returns a FRESH object every time, so callers can never
-// mutate a shared default (for example by pushing into `deliverables`).
+// Default application settings
 function getDefaultSettings() {
     return {
         id: 'appSettings',
@@ -85,11 +79,11 @@ function getDefaultSettings() {
         taxSettings: "inclusive",
         invoicePrefix: "INV",
         quotePrefix: "QT",
-        defaultQuoteValidity: 30, // days
+        defaultQuoteValidity: 30,
         defaultTerms: "Payment is due upon receipt. Work begins after initial deposit.",
         footerText: "Thank you for your business!",
         deliverables: ["WhatsApp Setup","Facebook Ads","Automation Setup"],
-        themeMode: "system", // light, dark, system
+        themeMode: "system",
         pinEnabled: false,
         pin: "",
         dateFormat: "YYYY-MM-DD",
@@ -102,10 +96,6 @@ function getDefaultSettings() {
     };
 }
 
-// Fills every setting that is missing (undefined / null) with its default, WITHOUT changing
-// anything the user has stored: real values always win, including 0, "" and false.
-// Extra stored keys (migrated_v1, darkMode, ...) are kept. Used for records that come from
-// a migration, a restored backup, or an older version of the app and lack newer fields.
 function mergeSettingsWithDefaults(stored) {
     const defaults = getDefaultSettings();
     if (!stored || typeof stored !== 'object' || Array.isArray(stored)) return defaults;
@@ -116,7 +106,7 @@ function mergeSettingsWithDefaults(stored) {
         if (value === undefined || value === null) {
             merged[key] = defaults[key];
         } else if (Array.isArray(defaults[key]) && !Array.isArray(value)) {
-            merged[key] = defaults[key]; // a non-list here would crash the UI (.map / .includes)
+            merged[key] = defaults[key];
         }
     });
     merged.id = 'appSettings';
@@ -129,12 +119,9 @@ window.AppState = {
     async loadSettings() {
         const stored = await window.appDB.get('settings', 'appSettings');
         if (!stored) {
-            // First run: create and save the default settings
             this.settings = getDefaultSettings();
             await window.appDB.put('settings', this.settings);
         } else {
-            // Existing record (may come from a migration / restored backup / older version and lack newer fields):
-            // fill the gaps in memory only. Nothing is written until the user saves settings.
             this.settings = mergeSettingsWithDefaults(stored);
         }
         this.applyTheme();
@@ -150,7 +137,6 @@ window.AppState = {
         if (mode === "system") {
             isDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
 
-            // Listen for system theme changes if not already set up
             if (!this._themeListenerSetup) {
                 window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', e => {
                     if (this.settings.themeMode === "system") {
@@ -210,7 +196,7 @@ function filterDataByDate(data, dateField = 'date') {
 
     return data.filter(item => {
         let itemDateStr = item[dateField];
-        if (!itemDateStr) itemDateStr = item.created; // Fallback
+        if (!itemDateStr) itemDateStr = item.created;
         if (!itemDateStr) return true;
 
         let parseStr = itemDateStr;
@@ -228,16 +214,7 @@ function filterDataByDate(data, dateField = 'date') {
     });
 }
 
-// Download Helper.
-// Returns a plain result object describing what actually happened — never throws for an
-// ordinary save/cancel, so a caller can show an honest message instead of always guessing:
-//   { status: 'saved',      method: 'picker' }  - the browser confirmed the file was written
-//   { status: 'cancelled',  method: 'picker' }  - the user closed the Save dialog; nothing was written
-//   { status: 'downloaded', method: 'anchor'  }  - handed to the browser's normal download (mobile /
-//                                                  unsupported browsers); the browser gives no confirmation,
-//                                                  so this only means the download was *started*, not saved
-// A genuine failure to hand off the file (both the picker AND the anchor fallback failed) still throws,
-// so existing callers' try/catch (Backup/CSV export) keep showing their own "FAILED" message unchanged.
+// Download Helper
 async function saveFileToDevice(blob, filename) {
     if (window.showSaveFilePicker) {
         try {
@@ -254,17 +231,12 @@ async function saveFileToDevice(blob, filename) {
             return { status: 'saved', method: 'picker' };
         } catch (err) {
             if (err.name === 'AbortError') {
-                return { status: 'cancelled', method: 'picker' }; // User cancelled — nothing was written, nothing to fall back to
+                return { status: 'cancelled', method: 'picker' };
             }
             console.error('File System Access API failed, falling back:', err);
-            // fall through to the anchor-download fallback below
         }
     }
 
-    // Fallback for mobile / browsers without File System Access API.
-    // The object URL is kept alive for a short while after click(): on some mobile browsers and
-    // WebViews the download is handled asynchronously, and revoking immediately can cut it off
-    // before the browser has actually read the blob's data.
     try {
         const url = URL.createObjectURL(blob);
         const a = document.createElement('a');
@@ -283,11 +255,9 @@ async function saveFileToDevice(blob, filename) {
 // Global Custom Confirm
 window.showConfirm = function(message) {
     return new Promise((resolve) => {
-        // Create overlay
         const overlay = document.createElement('div');
         overlay.className = 'confirm-overlay';
 
-        // Create modal box
         const modal = document.createElement('div');
         modal.className = 'confirm-box card';
 
@@ -313,11 +283,10 @@ window.showConfirm = function(message) {
         overlay.appendChild(modal);
         document.body.appendChild(overlay);
 
-        // Trap focus inside modal
         confirmBtn.focus();
 
         const cleanup = () => {
-            document.body.removeChild(overlay);
+            if (overlay.parentNode) document.body.removeChild(overlay);
             document.removeEventListener('keydown', keydownHandler);
         };
 
@@ -329,16 +298,12 @@ window.showConfirm = function(message) {
         cancelBtn.onclick = () => handleResult(false);
         confirmBtn.onclick = () => handleResult(true);
         overlay.onclick = (e) => {
-            if (e.target === overlay) {
-                handleResult(false);
-            }
+            if (e.target === overlay) handleResult(false);
         };
 
         const keydownHandler = (e) => {
-            if (e.key === 'Escape') {
-                handleResult(false);
-            } else if (e.key === 'Enter') {
-                // If focus is not already on a button, confirm
+            if (e.key === 'Escape') handleResult(false);
+            else if (e.key === 'Enter') {
                 if (document.activeElement !== cancelBtn && document.activeElement !== confirmBtn) {
                     handleResult(true);
                 }
@@ -346,4 +311,82 @@ window.showConfirm = function(message) {
         };
         document.addEventListener('keydown', keydownHandler);
     });
+};
+
+// Discard Unsaved Changes Confirm
+window.showDiscardConfirm = function() {
+    return new Promise((resolve) => {
+        const overlay = document.createElement('div');
+        overlay.className = 'confirm-overlay';
+
+        const modal = document.createElement('div');
+        modal.className = 'confirm-box card';
+
+        const msgEl = document.createElement('p');
+        msgEl.className = 'confirm-message';
+        msgEl.textContent = 'Discard unsaved changes?';
+
+        const btnContainer = document.createElement('div');
+        btnContainer.className = 'confirm-buttons';
+
+        const cancelBtn = document.createElement('button');
+        cancelBtn.className = 'btn';
+        cancelBtn.textContent = 'Cancel';
+
+        const discardBtn = document.createElement('button');
+        discardBtn.className = 'btn danger';
+        discardBtn.textContent = 'Discard';
+
+        btnContainer.appendChild(cancelBtn);
+        btnContainer.appendChild(discardBtn);
+        modal.appendChild(msgEl);
+        modal.appendChild(btnContainer);
+        overlay.appendChild(modal);
+        document.body.appendChild(overlay);
+
+        discardBtn.focus();
+
+        const cleanup = () => {
+            if (overlay.parentNode) document.body.removeChild(overlay);
+            document.removeEventListener('keydown', keydownHandler);
+        };
+
+        const handleResult = (result) => {
+            cleanup();
+            resolve(result);
+        };
+
+        cancelBtn.onclick = () => handleResult(false);
+        discardBtn.onclick = () => handleResult(true);
+        overlay.onclick = (e) => {
+            if (e.target === overlay) handleResult(false);
+        };
+
+        const keydownHandler = (e) => {
+            if (e.key === 'Escape') handleResult(false);
+        };
+        document.addEventListener('keydown', keydownHandler);
+    });
+};
+
+// Toast Notifications
+window.showToast = function(message, type = 'info') {
+    let container = document.getElementById('toastContainer');
+    if (!container) {
+        container = document.createElement('div');
+        container.id = 'toastContainer';
+        container.className = 'toast-container';
+        document.body.appendChild(container);
+    }
+
+    const toast = document.createElement('div');
+    toast.className = `toast ${type}`;
+    toast.textContent = message;
+    container.appendChild(toast);
+
+    setTimeout(() => {
+        toast.style.opacity = '0';
+        toast.style.transition = 'opacity 0.2s ease';
+        setTimeout(() => { if (toast.parentNode) toast.remove(); }, 200);
+    }, 2800);
 };

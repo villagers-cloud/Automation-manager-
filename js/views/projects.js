@@ -1,5 +1,23 @@
 // Projects View
-window.appRouter.addRoute('projects', async () => {
+window.appRouter.addRoute('projects', async (fullRoute) => {
+    const parts = (fullRoute || 'projects').split(':');
+    const subAction = parts[1];
+    const id = parts[2];
+
+    if (subAction === 'new') {
+        await showProjectForm();
+    } else if (subAction === 'edit' && id) {
+        const p = await window.appDB.get('projects', id);
+        if (!p) return window.appRouter.navigate('projects');
+        await showProjectForm(p);
+    } else if (subAction === 'view' && id) {
+        await showProjectDetails(id);
+    } else {
+        await renderProjectsList();
+    }
+});
+
+async function renderProjectsList() {
     const container = document.getElementById('page-projects');
     if(!container) {
         const main = document.querySelector('main');
@@ -12,17 +30,30 @@ window.appRouter.addRoute('projects', async () => {
         <div class="card">
             <div class="toolbar">
                 <h2 style="margin:0">Projects</h2>
-            <button class="icon-btn global-filter-btn" title="Filter by Date">📅</button>
+                <button class="icon-btn global-filter-btn" title="Filter by Date">📅</button>
                 <input class="search" id="projectSearch" placeholder="Search projects...">
                 <button class="btn primary" id="newProjectBtn">+ New Project</button>
             </div>
+
+            <!-- Contextual Help -->
+            <div class="help-box" style="margin-bottom:15px; padding:12px 14px; background:var(--primary-soft); border-radius:12px; font-size:13px; line-height:1.4;">
+                <details>
+                    <summary style="font-weight:700; cursor:pointer; color:var(--primary);">ℹ How Projects Work</summary>
+                    <div style="margin-top:8px;">
+                        <strong>WHAT IT DOES:</strong> Tracks actual business execution, milestones, deadlines, and budget after a quote is accepted.<br>
+                        <strong>INPUT:</strong> Project title, linked client, status, start date, deadline, budget, and progress percentage.<br>
+                        <strong>PROCESS:</strong> Progress and status update as linked project tasks are completed.<br>
+                        <strong>OUTPUT:</strong> Clear project health visibility, deadline tracking, and task completion metrics.<br>
+                        <div style="margin-top:4px; font-style:italic;"><strong>EXAMPLE:</strong> Quote accepted → Create Project "ABC Website" → Add tasks → Track status to Completion.</div>
+                    </div>
+                </details>
+            </div>
+
             <div id="projectList">Loading...</div>
         </div>
     `;
 
     let projects = await window.appDB.getAll('projects');
-
-    // Resolve client names (optimized: avoid N+1 queries)
     const clients = await window.appDB.getAll('clients');
     const clientMap = new Map(clients.map(c => [c.id, c.name]));
     for (let p of projects) {
@@ -36,7 +67,7 @@ window.appRouter.addRoute('projects', async () => {
         const listContainer = document.getElementById('projectList');
 
         if (list.length === 0) {
-            listContainer.innerHTML = '<div class="empty">No projects found.</div>';
+            listContainer.innerHTML = '<div class="empty">No projects found. Create your first project to get started.</div>';
             return;
         }
 
@@ -45,7 +76,7 @@ window.appRouter.addRoute('projects', async () => {
                 <div class="list-item-head">
                     <div>
                         <div class="list-item-title">${escapeHTML(p.name)}</div>
-                        <div class="list-item-meta">${escapeHTML(p.clientNameTemp || "No Client")} • Due: ${escapeHTML(p.deadline)}</div>
+                        <div class="list-item-meta">${escapeHTML(p.clientNameTemp || "No Client")} • Due: ${escapeHTML(p.deadline || "No deadline")}</div>
                     </div>
                     <span style="font-size:12px; font-weight:700; padding:4px 8px; border-radius:8px; background:var(--bg); color:var(--text)">
                         ${escapeHTML(p.status)}
@@ -71,15 +102,14 @@ window.appRouter.addRoute('projects', async () => {
         renderProjects(e.target.value);
     });
 
-    document.getElementById('newProjectBtn').onclick = () => showProjectForm();
+    document.getElementById('newProjectBtn').onclick = () => window.appRouter.navigate('projects:new');
 
     document.getElementById('projectList').onclick = async (e) => {
         const btn = e.target.closest('button');
         if (!btn) return;
 
         if (btn.dataset.editProject) {
-            const p = await window.appDB.get('projects', btn.dataset.editProject);
-            showProjectForm(p);
+            window.appRouter.navigate(`projects:edit:${btn.dataset.editProject}`);
         } else if (btn.dataset.deleteProject) {
             if (await window.showConfirm("Delete this project? Associated tasks will be orphaned.")) {
                 await window.appDB.delete('projects', btn.dataset.deleteProject);
@@ -87,10 +117,10 @@ window.appRouter.addRoute('projects', async () => {
                 renderProjects();
             }
         } else if (btn.dataset.viewProject) {
-            showProjectDetails(btn.dataset.viewProject);
+            window.appRouter.navigate(`projects:view:${btn.dataset.viewProject}`);
         }
     };
-});
+}
 
 async function showProjectForm(project = null) {
     const isEdit = !!project;
@@ -100,9 +130,9 @@ async function showProjectForm(project = null) {
     container.innerHTML = `
         <div class="card">
             <div class="toolbar">
-                <h2 style="margin:0">${isEdit ? 'Edit Project' : 'New Project'}</h2>
-            <button class="icon-btn global-filter-btn" title="Filter by Date">📅</button>
-                <button class="btn" id="cancelProjectBtn">Cancel</button>
+                <button type="button" class="btn back-btn" id="backProjectFormBtn">← Back</button>
+                <h2 style="margin:0; flex:1; text-align:center;">${isEdit ? 'Edit Project' : 'New Project'}</h2>
+                <button class="icon-btn global-filter-btn" title="Filter by Date">📅</button>
             </div>
             <form id="projectForm">
                 <div class="field">
@@ -152,14 +182,16 @@ async function showProjectForm(project = null) {
                     <label>Description</label>
                     <textarea id="pf-desc">${isEdit ? escapeHTML(project.description) : ''}</textarea>
                 </div>
-                <div style="margin-top:15px">
-                    <button type="submit" class="btn green">Save Project</button>
+                <div style="margin-top:15px; display:flex; gap:10px;">
+                    <button type="submit" class="btn green" style="flex:1;">Save Project</button>
+                    <button type="button" class="btn" id="cancelProjectBtn">Cancel</button>
                 </div>
             </form>
         </div>
     `;
 
-    document.getElementById('cancelProjectBtn').onclick = () => window.appRouter.navigate('projects');
+    document.getElementById('backProjectFormBtn').onclick = () => window.appRouter.back();
+    document.getElementById('cancelProjectBtn').onclick = () => window.appRouter.back();
 
     document.getElementById('projectForm').onsubmit = async (e) => {
         e.preventDefault();
@@ -175,6 +207,7 @@ async function showProjectForm(project = null) {
             description: document.getElementById('pf-desc').value.trim()
         };
         await window.appDB.put('projects', data);
+        window.appRouter.isFormDirty = false;
         window.appRouter.navigate('projects');
     };
 }
@@ -189,14 +222,14 @@ async function showProjectDetails(projectId) {
         if (c) clientName = c.name;
     }
 
-    // Get Tasks
     const allTasks = await window.appDB.getByIndex('tasks', 'projectId', projectId);
 
     const container = document.getElementById('page-projects');
     container.innerHTML = `
         <div class="card" style="margin-bottom:15px">
             <div class="toolbar">
-                <button class="btn" id="backToProjects">← Back</button>
+                <button type="button" class="btn back-btn" id="backToProjects">← Back</button>
+                <h2 style="margin:0; flex:1; text-align:center;">Project Details</h2>
                 <button class="btn primary" id="editProjBtn">Edit Project</button>
             </div>
             <div style="margin-top: 15px; margin-bottom: 25px;">
@@ -237,8 +270,8 @@ async function showProjectDetails(projectId) {
         </div>
     `;
 
-    document.getElementById('backToProjects').onclick = () => window.appRouter.navigate('projects');
-    document.getElementById('editProjBtn').onclick = () => showProjectForm(project);
+    document.getElementById('backToProjects').onclick = () => window.appRouter.back();
+    document.getElementById('editProjBtn').onclick = () => window.appRouter.navigate(`projects:edit:${project.id}`);
 
     const renderTasks = () => {
         const list = document.getElementById('projTaskList');
@@ -306,14 +339,48 @@ async function showProjectDetails(projectId) {
 }
 
 // Global Tasks View
-window.appRouter.addRoute('tasks', async () => {
+window.appRouter.addRoute('tasks', async (fullRoute) => {
+    const parts = (fullRoute || 'tasks').split(':');
+    const subAction = parts[1];
+    const id = parts[2];
+
+    if (subAction === 'new') {
+        const projects = await window.appDB.getAll('projects');
+        await showTaskForm(null, projects);
+    } else if (subAction === 'edit' && id) {
+        const tasks = await window.appDB.getAll('tasks');
+        const task = tasks.find(t => t.id === id);
+        if (!task) return window.appRouter.navigate('tasks');
+        const projects = await window.appDB.getAll('projects');
+        await showTaskForm(task, projects);
+    } else {
+        await renderTasksList();
+    }
+});
+
+async function renderTasksList() {
     const container = document.getElementById('page-tasks');
     container.innerHTML = `
         <div class="card">
             <div class="toolbar">
-                <h2 style="margin:0">My Tasks</h2>
-            <button class="icon-btn global-filter-btn" title="Filter by Date">📅</button>
+                <button type="button" class="btn back-btn" id="backTasksBtn">← Back</button>
+                <h2 style="margin:0; flex:1; text-align:center;">My Tasks</h2>
+                <button class="icon-btn global-filter-btn" title="Filter by Date">📅</button>
                 <button class="btn primary" id="globalNewTaskBtn">+ New Task</button>
+            </div>
+
+            <!-- Contextual Help -->
+            <div class="help-box" style="margin-bottom:15px; padding:12px 14px; background:var(--primary-soft); border-radius:12px; font-size:13px; line-height:1.4;">
+                <details>
+                    <summary style="font-weight:700; cursor:pointer; color:var(--primary);">ℹ How Tasks Work</summary>
+                    <div style="margin-top:8px;">
+                        <strong>WHAT IT DOES:</strong> Breaks down projects or general work into actionable TODO items.<br>
+                        <strong>INPUT:</strong> Task title, linked project, due date, status, and notes.<br>
+                        <strong>PROCESS:</strong> Toggling tasks updates project progress and task status.<br>
+                        <strong>OUTPUT:</strong> Clear checklist sorted by urgency and status.<br>
+                        <div style="margin-top:4px; font-style:italic;"><strong>EXAMPLE:</strong> Project: "ABC Website" → Tasks: Collect requirements, Design homepage, Build, Test, Deliver.</div>
+                    </div>
+                </details>
             </div>
 
             <div class="tabs" style="margin-bottom: 15px;">
@@ -325,10 +392,11 @@ window.appRouter.addRoute('tasks', async () => {
         </div>
     `;
 
+    document.getElementById('backTasksBtn').onclick = () => window.appRouter.back();
+
     const tasks = await window.appDB.getAll('tasks');
     const projects = await window.appDB.getAll('projects');
 
-    // Pre-map project names
     const projMap = {};
     projects.forEach(p => projMap[p.id] = p.name);
 
@@ -339,11 +407,10 @@ window.appRouter.addRoute('tasks', async () => {
         const list = document.getElementById('globalTaskList');
 
         if (filtered.length === 0) {
-            list.innerHTML = `<div class="empty">No ${currentFilter} tasks.</div>`;
+            list.innerHTML = `<div class="empty">No ${currentFilter} tasks found.</div>`;
             return;
         }
 
-        // Sort: pending by nearest date, completed by newest
         filtered.sort((a,b) => {
             if (!a.dueDate) return 1;
             if (!b.dueDate) return -1;
@@ -372,7 +439,6 @@ window.appRouter.addRoute('tasks', async () => {
 
     renderTasks();
 
-    // Tab switching
     container.querySelectorAll('.tab').forEach(tab => {
         tab.onclick = () => {
             container.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
@@ -382,7 +448,7 @@ window.appRouter.addRoute('tasks', async () => {
         };
     });
 
-    document.getElementById('globalNewTaskBtn').onclick = () => showTaskForm(null, projects);
+    document.getElementById('globalNewTaskBtn').onclick = () => window.appRouter.navigate('tasks:new');
 
     document.getElementById('globalTaskList').addEventListener('change', async (e) => {
         if (e.target.dataset.globalToggle) {
@@ -391,7 +457,7 @@ window.appRouter.addRoute('tasks', async () => {
             if (task) {
                 task.status = e.target.checked ? 'Completed' : 'Pending';
                 await window.appDB.put('tasks', task);
-                renderTasks(); // moves it out of current view
+                renderTasks();
             }
         }
     });
@@ -408,22 +474,21 @@ window.appRouter.addRoute('tasks', async () => {
                 renderTasks();
             }
         } else if (btn.dataset.globalEdit) {
-            const task = tasks.find(t => t.id === btn.dataset.globalEdit);
-            if (task) showTaskForm(task, projects);
+            window.appRouter.navigate(`tasks:edit:${btn.dataset.globalEdit}`);
         }
     });
-});
+}
 
-function showTaskForm(task, projects) {
+async function showTaskForm(task, projects) {
     const isEdit = !!task;
     const container = document.getElementById('page-tasks');
 
     container.innerHTML = `
         <div class="card">
             <div class="toolbar">
-                <h2 style="margin:0">${isEdit ? 'Edit Task' : 'New Task'}</h2>
-            <button class="icon-btn global-filter-btn" title="Filter by Date">📅</button>
-                <button class="btn" id="cancelTaskBtn">Cancel</button>
+                <button type="button" class="btn back-btn" id="backTaskFormBtn">← Back</button>
+                <h2 style="margin:0; flex:1; text-align:center;">${isEdit ? 'Edit Task' : 'New Task'}</h2>
+                <button class="icon-btn global-filter-btn" title="Filter by Date">📅</button>
             </div>
             <form id="taskForm">
                 <div class="field">
@@ -454,14 +519,16 @@ function showTaskForm(task, projects) {
                     <label>Notes</label>
                     <textarea id="tf-notes">${isEdit ? escapeHTML(task.notes || '') : ''}</textarea>
                 </div>
-                <div style="margin-top:15px">
-                    <button type="submit" class="btn green">Save Task</button>
+                <div style="margin-top:15px; display:flex; gap:10px;">
+                    <button type="submit" class="btn green" style="flex:1;">Save Task</button>
+                    <button type="button" class="btn" id="cancelTaskBtn">Cancel</button>
                 </div>
             </form>
         </div>
     `;
 
-    document.getElementById('cancelTaskBtn').onclick = () => window.appRouter.navigate('tasks');
+    document.getElementById('backTaskFormBtn').onclick = () => window.appRouter.back();
+    document.getElementById('cancelTaskBtn').onclick = () => window.appRouter.back();
 
     document.getElementById('taskForm').onsubmit = async (e) => {
         e.preventDefault();
@@ -483,6 +550,7 @@ function showTaskForm(task, projects) {
             notes: document.getElementById('tf-notes').value.trim()
         };
         await window.appDB.put('tasks', data);
+        window.appRouter.isFormDirty = false;
         window.appRouter.navigate('tasks');
     };
 }

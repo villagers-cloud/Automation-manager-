@@ -1,23 +1,14 @@
 // ============================================================================
-// BackupTools — Phase 1 (data safety)
-// Pure helpers for JSON backup / restore and CSV export. Used by the Data page.
-//  - validateBackup / parseBackupText : validate a backup BEFORE touching IndexedDB
-//  - buildBackupObject                : creates a versioned backup WITHOUT secrets
-//  - readAllStores                    : reads every store in ONE read transaction
-//  - replaceAllStores                 : restores every store in ONE readwrite transaction
-//  - buildCsv                         : RFC 4180 CSV (union of keys, BOM, nested JSON)
+// BackupTools
+// Pure helpers for JSON backup / restore and CSV export.
 // ============================================================================
 window.BackupTools = (function () {
     const APP_NAME = 'Automation Manager';
     const BACKUP_FORMAT = 'automation-manager-backup';
-    const SCHEMA_VERSION = 2; // 1 = legacy flat backup (no "meta" section)
+    const SCHEMA_VERSION = 2;
     const STORES = ['settings', 'clients', 'services', 'quotes', 'projects', 'tasks', 'invoices', 'payments', 'expenses', 'team', 'notes'];
 
-    // Device-local secrets: never written to a backup file, never overwritten by a restore
-    // (unless the user explicitly chooses to restore them from an older backup file).
     const SECRET_SETTING_FIELDS = ['aiApiKeyOpenAI', 'aiApiKeyGemini', 'pin', 'pinEnabled'];
-
-    // Fields the UI calls string methods on (crashes the page if missing) — a record without them is malformed.
     const REQUIRED_TEXT_FIELDS = { clients: ['name'], projects: ['name'], team: ['name'] };
 
     const CSV_LABELS = {
@@ -37,7 +28,6 @@ window.BackupTools = (function () {
         return (typeof id === 'string' && id.trim().length > 0) || (typeof id === 'number' && isFinite(id));
     }
 
-    // ---------------------------------------------------------------- validation
     function validateBackup(backup) {
         const errors = [];
         const warnings = [];
@@ -90,7 +80,6 @@ window.BackupTools = (function () {
                     errors.push(where + ' has no valid "id".');
                     return;
                 }
-                // IndexedDB treats the number 1 and the string "1" as different keys
                 const key = typeof rec.id + ':' + rec.id;
                 if (seen.has(key)) {
                     errors.push(where + ' repeats the id "' + rec.id + '" (one record would silently overwrite the other).');
@@ -128,7 +117,6 @@ window.BackupTools = (function () {
             });
         }
 
-        // If the backup declares how many records each store has, they must match (detects truncated/edited files)
         if (meta && isPlainObject(meta.counts)) {
             STORES.forEach(store => {
                 const declared = meta.counts[store];
@@ -169,7 +157,6 @@ window.BackupTools = (function () {
         return shown.join('\n');
     }
 
-    // ---------------------------------------------------------------- backup (export)
     function stripSecrets(record) {
         const copy = Object.assign({}, record);
         SECRET_SETTING_FIELDS.forEach(f => { delete copy[f]; });
@@ -221,7 +208,6 @@ window.BackupTools = (function () {
         }));
     }
 
-    // ---------------------------------------------------------------- restore (import)
     function settingsHaveCredentials(rec) {
         if (!isPlainObject(rec)) return false;
         return ['aiApiKeyOpenAI', 'aiApiKeyGemini', 'pin'].some(f => typeof rec[f] === 'string' && rec[f] !== '') || rec.pinEnabled === true;
@@ -232,20 +218,16 @@ window.BackupTools = (function () {
         const merged = Object.assign({}, backupSettings);
         merged.id = 'appSettings';
         SECRET_SETTING_FIELDS.forEach(f => {
-            if (restoreCredentials && merged[f] !== undefined) return; // explicit choice: take the value from the file
+            if (restoreCredentials && merged[f] !== undefined) return;
             const local = localSettings ? localSettings[f] : undefined;
             if (local !== undefined) merged[f] = local;
             else merged[f] = (f === 'pinEnabled') ? false : '';
         });
-        // never lose the "legacy data already migrated" marker (would let old localStorage data come back)
         if (!merged.migrated_v1 && localSettings && localSettings.migrated_v1) merged.migrated_v1 = true;
         return merged;
     }
 
-    // Replaces ALL stores inside a single IndexedDB transaction. If anything fails the
-    // transaction is aborted and IndexedDB rolls back: existing data is left untouched.
     async function replaceAllStores(backup, options) {
-        // 1. Re-validate here too, so no caller can bypass validation
         const check = validateBackup(backup);
         if (!check.ok) throw new Error('Invalid backup: ' + check.errors[0]);
         if (typeof initDB !== 'function') throw new Error('The database is not available.');
@@ -253,7 +235,6 @@ window.BackupTools = (function () {
         const db = await initDB();
         const local = await window.appDB.get('settings', 'appSettings');
 
-        // 2. Build the complete plan in memory (nothing written yet)
         const plan = {};
         STORES.forEach(store => { plan[store] = backup[store]; });
         if (backup.settings.length > 0) {
@@ -262,7 +243,6 @@ window.BackupTools = (function () {
             plan.settings = local ? [local] : [];
         }
 
-        // 3. One transaction: clear + put for every store, all-or-nothing
         return new Promise((resolve, reject) => {
             let failure = null;
             let tx;
@@ -286,12 +266,11 @@ window.BackupTools = (function () {
                 });
             } catch (e) {
                 failure = e;
-                try { tx.abort(); } catch (ignore) { /* already finished */ }
+                try { tx.abort(); } catch (ignore) {}
             }
         });
     }
 
-    // ---------------------------------------------------------------- CSV
     function csvEscape(value) {
         let s;
         if (value === null || value === undefined) {
@@ -322,7 +301,6 @@ window.BackupTools = (function () {
         records.forEach(r => {
             lines.push(headers.map(h => csvEscape(isPlainObject(r) ? r[h] : undefined)).join(','));
         });
-        // UTF-8 BOM so Excel / Android apps read Gujarati and ₹ correctly; CRLF per RFC 4180
         return { headers: headers, rowCount: records.length, text: '\uFEFF' + lines.join('\r\n') + '\r\n' };
     }
 
@@ -331,7 +309,6 @@ window.BackupTools = (function () {
         return 'No ' + label + ' records to export — this list is empty. Your other data is not affected.';
     }
 
-    // The date field each CSV store is filtered on. Identical to the fields the on-screen lists use.
     const CSV_DATE_FIELDS = {
         clients: 'dateAdded',
         quotes: 'date',
@@ -341,7 +318,6 @@ window.BackupTools = (function () {
         payments: 'date'
     };
 
-    // Human-readable description of the active global date filter (empty string when there is none)
     function describeDateFilter(f) {
         if (!f) return '';
         const from = f.fromDate ? f.fromDate + (f.fromTime ? ' ' + f.fromTime : '') : '';
@@ -383,7 +359,7 @@ window.BackupTools = (function () {
 })();
 
 // ============================================================================
-// SettingsTools — Phase 4: theme values and the PIN-lock rules (pure functions, unit-tested)
+// SettingsTools
 // ============================================================================
 window.SettingsTools = (function () {
     const THEME_MODES = ['system', 'light', 'dark'];
@@ -396,15 +372,10 @@ window.SettingsTools = (function () {
         return typeof pin === 'string' && /^\d{4}$/.test(pin);
     }
 
-    // The exact rule app.js uses at start-up to decide whether to show the lock screen.
     function isPinLockEffective(settings) {
         return !!settings && !!settings.pinEnabled && isValidPin(settings.pin);
     }
 
-    // Decides what "Save Preferences" may do with the PIN. Pure: it never touches any state.
-    //  - a typed PIN must be exactly 4 digits;
-    //  - the lock can only be turned ON if a usable 4-digit PIN exists (typed now, or already saved);
-    //  - turning it OFF is always allowed and keeps the stored PIN.
     function resolvePinPreference(input) {
         const wantOn = !!(input && input.wantEnabled);
         const entered = input && typeof input.enteredPin === 'string' ? input.enteredPin.trim() : '';
@@ -441,13 +412,12 @@ window.SettingsTools = (function () {
 })();
 
 // ============================================================================
-// ReportTools — Phase 4: clear messages instead of a page that merely looks broken
+// ReportTools
 // ============================================================================
 window.ReportTools = (function () {
     const KEYS = ['payments', 'expenses', 'clients', 'projects', 'quotes'];
     const total = (counts) => KEYS.reduce((sum, k) => sum + (Number(counts && counts[k]) || 0), 0);
 
-    // null = nothing to say. Zeros are legitimate numbers when data exists.
     function reportsNotice(input) {
         if (total(input.allCounts) === 0) {
             return { kind: 'info', message: 'No business data recorded yet. Add clients, quotes, payments and expenses and they will appear here.' };
@@ -490,8 +460,23 @@ window.appRouter.addRoute('reports', async () => {
     container.innerHTML = `
         <div class="card">
             <div class="toolbar">
-                <h2 style="margin:0">Business Reports</h2>
-            <button class="icon-btn global-filter-btn" title="Filter by Date">📅</button>
+                <button type="button" class="btn back-btn" id="backReportsBtn">← Back</button>
+                <h2 style="margin:0; flex:1; text-align:center;">Business Reports</h2>
+                <button class="icon-btn global-filter-btn" title="Filter by Date">📅</button>
+            </div>
+
+            <!-- Contextual Help -->
+            <div class="help-box" style="margin-bottom:15px; padding:12px 14px; background:var(--primary-soft); border-radius:12px; font-size:13px; line-height:1.4;">
+                <details>
+                    <summary style="font-weight:700; cursor:pointer; color:var(--primary);">ℹ How Reports Work</summary>
+                    <div style="margin-top:8px;">
+                        <strong>WHAT IT DOES:</strong> Summarizes total business income, expenses, net profit, and client activity.<br>
+                        <strong>INPUT:</strong> Calculated automatically from recorded Payments received, Expenses logged, and active records.<br>
+                        <strong>PROCESS:</strong> Revenue = sum of Payments; Profit = Revenue - Expenses.<br>
+                        <strong>OUTPUT:</strong> Clear financial health breakdown.<br>
+                        <div style="margin-top:4px; font-style:italic;"><strong>EXAMPLE:</strong> Payments = ₹50,000, Expenses = ₹15,000 → Net Profit = ₹35,000.</div>
+                    </div>
+                </details>
             </div>
 
             <div id="repNotice" role="status" aria-live="polite" style="display:none; margin-bottom:15px; padding:10px 12px; border-radius:10px; font-size:13px; font-weight:600"></div>
@@ -532,6 +517,8 @@ window.appRouter.addRoute('reports', async () => {
         </div>
     `;
 
+    document.getElementById('backReportsBtn').onclick = () => window.appRouter.back();
+
     document.getElementById('repRev').textContent = 'Loading...';
     document.getElementById('repExp').textContent = 'Loading...';
     document.getElementById('repNet').textContent = 'Loading...';
@@ -568,7 +555,6 @@ window.appRouter.addRoute('reports', async () => {
         document.getElementById('repProjects').textContent = projects.filter(p => p.status === 'In Progress' || p.status === 'Planning').length;
         document.getElementById('repQuotes').textContent = quotes.length;
 
-        // Explain an empty report instead of leaving a page full of zeros that looks broken
         ReportTools.showNotice(ReportTools.reportsNotice({
             allCounts: { payments: allPayments.length, expenses: allExpenses.length, clients: allClients.length, projects: allProjects.length, quotes: allQuotes.length },
             shownCounts: { payments: payments.length, expenses: expenses.length, clients: clients.length, projects: projects.length, quotes: quotes.length },
@@ -586,7 +572,7 @@ window.appRouter.addRoute('reports', async () => {
     }
 });
 
-// Settings & Data View
+// Settings View
 window.appRouter.addRoute('settings', async () => {
     if (!window.AppState.settings) {
         await window.AppState.loadSettings();
@@ -594,6 +580,29 @@ window.appRouter.addRoute('settings', async () => {
     const container = document.getElementById('page-settings');
     container.innerHTML = `
       <div class="grid">
+        <div class="col-12 card toolbar-card" style="margin-bottom:0">
+            <div class="toolbar" style="margin:0">
+                <button type="button" class="btn back-btn" id="backSettingsBtn">← Back</button>
+                <h2 style="margin:0; flex:1; text-align:center;">Settings</h2>
+            </div>
+        </div>
+
+        <!-- Contextual Help -->
+        <div class="col-12">
+            <div class="help-box" style="padding:12px 14px; background:var(--primary-soft); border-radius:12px; font-size:13px; line-height:1.4;">
+                <details>
+                    <summary style="font-weight:700; cursor:pointer; color:var(--primary);">ℹ How Settings Work</summary>
+                    <div style="margin-top:8px;">
+                        <strong>WHAT IT DOES:</strong> Configures business profile, pricing defaults, app theme, and PIN security.<br>
+                        <strong>INPUT:</strong> Business name, logo URL, tax rates, currency symbol, invoice prefix, theme choice, and PIN.<br>
+                        <strong>PROCESS:</strong> Preferences update global application behavior and template renderings.<br>
+                        <strong>OUTPUT:</strong> Custom branding on quotes/PDFs and application lock protection.<br>
+                        <div style="margin-top:4px; font-style:italic;"><strong>EXAMPLE:</strong> Set Currency = "₹" & Tax Rate = 18% → New quotes automatically calculate 18% tax using ₹ currency symbol.</div>
+                    </div>
+                </details>
+            </div>
+        </div>
+
         <div class="col-6 card">
           <h2>Agency Profile</h2>
           <div class="field"><label>Agency Name</label><input id="set-agencyName"></div>
@@ -653,21 +662,19 @@ window.appRouter.addRoute('settings', async () => {
             <button class="btn primary" id="addDelBtn">Add</button>
           </div>
         </div>
-
-        <div id="settings-ai-container" class="col-12 card"></div>
       </div>
     `;
 
+    document.getElementById('backSettingsBtn').onclick = () => window.appRouter.back();
+
     const s = window.AppState.settings;
 
-    // Bind current settings
     ['agencyName', 'logoUrl', 'upiQrUrl', 'taxRate', 'metaRate', 'currency', 'invoicePrefix'].forEach(id => {
         const el = document.getElementById('set-' + id);
         if(el) el.value = s[id] !== undefined ? s[id] : '';
     });
 
     document.getElementById('set-themeMode').value = SettingsTools.normalizeThemeMode(s.themeMode);
-    // Show the TRUTH: the app only locks when the flag is on AND a usable 4-digit PIN is saved (the rule app.js uses)
     const pinLockActive = SettingsTools.isPinLockEffective(s);
     document.getElementById('set-pinEnabled').checked = pinLockActive;
     if (s.pinEnabled && !pinLockActive) {
@@ -686,7 +693,6 @@ window.appRouter.addRoute('settings', async () => {
     };
     renderDeliverables();
 
-    // Handlers
     document.getElementById('saveProfileBtn').onclick = async () => {
         s.agencyName = document.getElementById('set-agencyName').value.trim();
         s.logoUrl = document.getElementById('set-logoUrl').value.trim();
@@ -705,7 +711,6 @@ window.appRouter.addRoute('settings', async () => {
     };
 
     document.getElementById('savePrefsBtn').onclick = async () => {
-        // 1. Decide first. Nothing in memory or in the database is touched unless the whole form is acceptable.
         const decision = SettingsTools.resolvePinPreference({
             wantEnabled: document.getElementById('set-pinEnabled').checked,
             enteredPin: document.getElementById('set-appPin').value,
@@ -716,7 +721,6 @@ window.appRouter.addRoute('settings', async () => {
             return;
         }
 
-        // 2. Apply and save; if the save fails, put the previous values back so memory never disagrees with the database
         const previous = { themeMode: s.themeMode, pinEnabled: s.pinEnabled, pin: s.pin };
         try {
             s.themeMode = SettingsTools.normalizeThemeMode(document.getElementById('set-themeMode').value);
@@ -731,7 +735,7 @@ window.appRouter.addRoute('settings', async () => {
             alert("Preferences could not be saved. Nothing was changed.");
             return;
         }
-        document.getElementById('set-appPin').value = ""; // never leave the PIN on screen
+        document.getElementById('set-appPin').value = "";
         document.getElementById('pinWarning').style.display = 'none';
         alert("Preferences saved. " + decision.summary);
     };
@@ -761,11 +765,10 @@ window.appRouter.addRoute('settings', async () => {
             renderDeliverables();
         }
     });
-    if(window.renderAiConnector) window.renderAiConnector();
 });
 
+// Data Backup View
 window.appRouter.addRoute('data', async () => {
-    // Tell the user exactly what the global date filter does on this page (CSV: filtered, JSON backup: never)
     const activeFilter = window.AppFilter && window.AppFilter.active ? window.AppFilter : null;
     const filterNote = activeFilter
         ? 'Date filter is ON (' + BackupTools.describeDateFilter(activeFilter) + '): CSV exports include only records inside this range. The JSON backup is always complete.'
@@ -782,9 +785,25 @@ window.appRouter.addRoute('data', async () => {
     document.getElementById('page-data').innerHTML = `
         <div class="card">
             <div class="toolbar">
-                <h2 style="margin:0">Data Management (Backup / Restore)</h2>
+                <button type="button" class="btn back-btn" id="backDataBtn">← Back</button>
+                <h2 style="margin:0; flex:1; text-align:center;">Data Management (Backup / Restore)</h2>
                 <button class="icon-btn global-filter-btn" title="Filter by Date">📅</button>
             </div>
+
+            <!-- Contextual Help -->
+            <div class="help-box" style="margin-bottom:15px; padding:12px 14px; background:var(--primary-soft); border-radius:12px; font-size:13px; line-height:1.4;">
+                <details>
+                    <summary style="font-weight:700; cursor:pointer; color:var(--primary);">ℹ How Data Backup Works</summary>
+                    <div style="margin-top:8px;">
+                        <strong>WHAT IT DOES:</strong> Exports or restores complete application database backups locally.<br>
+                        <strong>INPUT:</strong> Export button press, or selected JSON backup file for restore.<br>
+                        <strong>PROCESS:</strong> Reads or restores IndexedDB tables (Clients, Quotes, Invoices, Expenses, etc.) with schema validation.<br>
+                        <strong>OUTPUT:</strong> Downloadable JSON/CSV files or restored business records.<br>
+                        <div style="margin-top:4px; font-style:italic;"><strong>EXAMPLE:</strong> Export JSON → Save file safely → Import JSON on new device to restore all records.</div>
+                    </div>
+                </details>
+            </div>
+
             <p class="muted">Your data is stored completely offline on this device. Back it up regularly.</p>
 
             <div style="display:flex; gap:10px; margin-top:20px; flex-wrap:wrap">
@@ -816,7 +835,8 @@ window.appRouter.addRoute('data', async () => {
         </div>
     `;
 
-    // Inline, honest status line for backup / restore / CSV results
+    document.getElementById('backDataBtn').onclick = () => window.appRouter.back();
+
     const STATUS_STYLES = {
         info:    ['var(--bg)', 'var(--text)'],
         success: ['var(--green-soft)', 'var(--green)'],
@@ -834,7 +854,6 @@ window.appRouter.addRoute('data', async () => {
         el.textContent = message;
     }
 
-    // What saveFileToDevice() reports. Today it returns nothing, so we must NOT claim the file was saved.
     function describeSaveOutcome(outcome, filename, detail) {
         const st = outcome && typeof outcome === 'object' ? outcome.status : undefined;
         if (st === 'cancelled') {
@@ -863,15 +882,14 @@ window.appRouter.addRoute('data', async () => {
 
     let dataBusy = false;
 
-    // Full JSON Backup
     document.getElementById('exportJsonBtn').onclick = async () => {
         if (dataBusy) return;
         dataBusy = true;
         try {
             setDataStatus('info', 'Preparing backup…');
-            const all = await BackupTools.readAllStores();          // every store, one consistent read
-            const backup = BackupTools.buildBackupObject(all);       // throws if any store is missing
-            const check = BackupTools.validateBackup(backup);        // the file must be restorable
+            const all = await BackupTools.readAllStores();
+            const backup = BackupTools.buildBackupObject(all);
+            const check = BackupTools.validateBackup(backup);
             if (!check.ok) throw new Error('Backup integrity check failed: ' + check.errors[0]);
 
             const blob = new Blob([JSON.stringify(backup, null, 2)], { type: "application/json" });
@@ -889,7 +907,6 @@ window.appRouter.addRoute('data', async () => {
         }
     };
 
-    // Safe JSON Restore: validate everything first, then replace all stores in one transaction
     document.getElementById('importJsonFile').onchange = async (e) => {
         const input = e.target;
         const file = input.files && input.files[0];
@@ -935,11 +952,10 @@ window.appRouter.addRoute('data', async () => {
             }
         } finally {
             dataBusy = false;
-            input.value = ''; // allow selecting the same file again
+            input.value = '';
         }
     };
 
-    // CSV Exports
     document.getElementById('page-data').onclick = async (e) => {
         const btn = e.target && e.target.closest ? e.target.closest('[data-csv]') : null;
         if (!btn) return;
@@ -950,14 +966,13 @@ window.appRouter.addRoute('data', async () => {
         try {
             const all = await window.appDB.getAll(type);
             if (all.length === 0) {
-                setDataStatus('info', BackupTools.emptyCsvMessage(type)); // the list itself is empty
+                setDataStatus('info', BackupTools.emptyCsvMessage(type));
                 return;
             }
-            // CSV follows the global date filter (same fields and rules as the on-screen lists); the JSON backup never does
             const filterActive = !!(window.AppFilter && window.AppFilter.active);
             const data = filterActive ? filterDataByDate(all, BackupTools.CSV_DATE_FIELDS[type]) : all;
             if (data.length === 0) {
-                setDataStatus('info', BackupTools.emptyFilteredCsvMessage(type, all.length)); // records exist, none inside the range
+                setDataStatus('info', BackupTools.emptyFilteredCsvMessage(type, all.length));
                 return;
             }
             const csv = BackupTools.buildCsv(data);
@@ -977,216 +992,15 @@ window.appRouter.addRoute('data', async () => {
         }
     };
 
-    // Reset App
     document.getElementById('resetAppBtn').onclick = async () => {
         if (await window.showConfirm("WARNING: This will permanently delete ALL data on this device and reset the application. Are you sure you want to proceed?")) {
             const stores = ['settings', 'clients', 'services', 'quotes', 'projects', 'tasks', 'invoices', 'payments', 'expenses', 'team', 'notes', 'activity'];
             for(let s of stores) {
                 try { await window.appDB.clear(s); } catch(e){}
             }
-            localStorage.removeItem('automation_pricing_app_v1'); // wipe old data too
+            localStorage.removeItem('automation_pricing_app_v1');
             alert("Application reset. Reloading.");
             window.location.reload();
         }
     };
 });
-
-// AI Connector Setup Logic
-window.renderAiConnector = () => {
-    const container = document.getElementById('settings-ai-container');
-    if (!container) return;
-
-    container.innerHTML = `
-        <h2>AI & Integrations</h2>
-        <div class="subtitle" style="margin-bottom:15px">Configure AI models to connect your Automation Manager.</div>
-
-        <div class="field">
-            <label>AI Provider</label>
-            <select id="set-aiProvider">
-                <option value="openai">OpenAI (ChatGPT)</option>
-                <option value="gemini">Google Gemini</option>
-            </select>
-        </div>
-
-        <div id="ai-openai-fields" style="display:none">
-            <div class="field">
-                <label>OpenAI API Key</label>
-                <input type="password" id="set-aiApiKeyOpenAI" placeholder="sk-...">
-            </div>
-            <div class="field">
-                <label>OpenAI Model</label>
-                <input id="set-aiModelOpenAI" placeholder="gpt-4o-mini" value="gpt-4o-mini">
-            </div>
-        </div>
-
-        <div id="ai-gemini-fields" style="display:none">
-            <div class="field">
-                <label>Gemini API Key</label>
-                <input type="password" id="set-aiApiKeyGemini" placeholder="AIza...">
-            </div>
-            <div class="field">
-                <label>Gemini Model</label>
-                <input id="set-aiModelGemini" placeholder="gemini-3.8-flash" value="gemini-3.8-flash">
-            </div>
-        </div>
-
-        <div style="display:flex; gap:10px; margin-top:15px;">
-            <button class="btn primary" id="saveAiBtn">Save Credentials</button>
-            <button class="btn" id="testAiBtn">Test Connection</button>
-        </div>
-
-        <div id="aiTestResult" style="margin-top:15px; font-weight:bold; font-size:14px; padding: 10px; border-radius: 8px; display: none;"></div>
-    `;
-
-    const s = window.AppState.settings;
-
-    // Bind initial values
-    document.getElementById('set-aiProvider').value = s.aiProvider || 'openai';
-    document.getElementById('set-aiApiKeyOpenAI').value = s.aiApiKeyOpenAI || '';
-    document.getElementById('set-aiModelOpenAI').value = s.aiModelOpenAI || 'gpt-4o-mini';
-    document.getElementById('set-aiApiKeyGemini').value = s.aiApiKeyGemini || '';
-    document.getElementById('set-aiModelGemini').value = s.aiModelGemini || 'gemini-3.8-flash';
-
-    const toggleFields = () => {
-        const prov = document.getElementById('set-aiProvider').value;
-        document.getElementById('ai-openai-fields').style.display = prov === 'openai' ? 'block' : 'none';
-        document.getElementById('ai-gemini-fields').style.display = prov === 'gemini' ? 'block' : 'none';
-    };
-    toggleFields();
-
-    document.getElementById('set-aiProvider').addEventListener('change', toggleFields);
-
-    document.getElementById('saveAiBtn').onclick = async () => {
-        s.aiProvider = document.getElementById('set-aiProvider').value;
-        s.aiApiKeyOpenAI = document.getElementById('set-aiApiKeyOpenAI').value.trim();
-        s.aiModelOpenAI = document.getElementById('set-aiModelOpenAI').value.trim() || 'gpt-4o-mini';
-        s.aiApiKeyGemini = document.getElementById('set-aiApiKeyGemini').value.trim();
-        s.aiModelGemini = document.getElementById('set-aiModelGemini').value.trim() || 'gemini-3.8-flash';
-
-        await window.AppState.saveSettings();
-        alert("AI Credentials saved.");
-    };
-
-    document.getElementById('testAiBtn').onclick = async () => {
-        const prov = document.getElementById('set-aiProvider').value;
-        const resEl = document.getElementById('aiTestResult');
-        resEl.style.display = 'block';
-        resEl.textContent = 'Testing connection...';
-        resEl.style.backgroundColor = 'var(--bg)';
-        resEl.style.color = 'var(--text)';
-
-        const startTime = Date.now();
-
-        try {
-            if (prov === 'openai') {
-                const key = document.getElementById('set-aiApiKeyOpenAI').value.trim();
-                const model = document.getElementById('set-aiModelOpenAI').value.trim() || 'gpt-4o-mini';
-                if (!key) throw new Error("Please enter an OpenAI API key first.");
-
-                const response = await fetch('https://api.openai.com/v1/chat/completions', {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                        'Authorization': `Bearer ${key}`
-                    },
-                    body: JSON.stringify({
-                        model: model,
-                        messages: [{ role: 'user', content: 'Reply with exactly: Connection successful.' }],
-                        max_tokens: 10
-                    })
-                });
-
-                if (!response.ok) {
-                    const errBody = await response.json().catch(()=>({}));
-                    throw new Error(`OpenAI Error: ${response.status} ${errBody.error?.message || response.statusText}`);
-                }
-
-                const data = await response.json();
-                const msg = data.choices?.[0]?.message?.content?.trim();
-                if (msg) {
-                    const elapsed = Date.now() - startTime;
-                    resEl.textContent = `✅ Connected. Response: "${msg}" (${elapsed}ms)`;
-                    resEl.style.backgroundColor = 'var(--green-soft)';
-                    resEl.style.color = 'var(--green)';
-                } else {
-                    throw new Error("Invalid response format from OpenAI.");
-                }
-
-            } else if (prov === 'gemini') {
-                const key = document.getElementById('set-aiApiKeyGemini').value.trim();
-                const model = document.getElementById('set-aiModelGemini').value.trim() || 'gemini-3.8-flash';
-                if (!key) throw new Error("Please enter a Gemini API key first.");
-
-                const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${key}`;
-                const response = await fetch(url, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                        contents: [{ parts: [{ text: 'Reply with exactly: Connection successful.' }] }]
-                    })
-                });
-
-                if (!response.ok) {
-                    const errBody = await response.json().catch(()=>({}));
-
-                    if (response.status === 429) {
-                        let retryMsg = "Gemini API quota/rate limit exceeded. Please check your Google AI Studio/API project quota or billing, then try again.";
-                        const retryAfter = response.headers.get('Retry-After');
-                        if (retryAfter) {
-                            const seconds = parseInt(retryAfter, 10);
-                            if (!isNaN(seconds)) {
-                                if (seconds > 60) {
-                                    retryMsg += ` Please try again in about ${Math.ceil(seconds/60)} minutes.`;
-                                } else {
-                                    retryMsg += ` Please try again in about ${seconds} seconds.`;
-                                }
-                            }
-                        }
-                        const err = new Error(retryMsg);
-                        err.type = 'QUOTA';
-                        throw err;
-                    } else if (response.status === 401 || response.status === 403) {
-                        const err = new Error("Authentication failed. Please check your Gemini API key and permissions.");
-                        err.type = 'AUTH';
-                        throw err;
-                    } else if (response.status === 404) {
-                        const err = new Error("Model or endpoint not found. Please verify your Gemini model name.");
-                        err.type = 'CONFIG';
-                        throw err;
-                    }
-
-                    throw new Error(`Gemini Error: ${response.status} ${errBody.error?.message || response.statusText}`);
-                }
-
-                const data = await response.json();
-                const msg = data.candidates?.[0]?.content?.parts?.[0]?.text?.trim();
-                if (msg) {
-                    const elapsed = Date.now() - startTime;
-                    resEl.textContent = `✅ Connected. Response: "${msg}" (${elapsed}ms)`;
-                    resEl.style.backgroundColor = 'var(--green-soft)';
-                    resEl.style.color = 'var(--green)';
-                } else {
-                    throw new Error("Invalid response format from Gemini.");
-                }
-            }
-        } catch (err) {
-            const elapsed = Date.now() - startTime;
-            let statusStr = "Connection failed";
-
-            // Check specific types from our manual throws
-            if (err.type === 'QUOTA') {
-                statusStr = "Quota exceeded";
-            } else if (err.type === 'AUTH') {
-                statusStr = "Authentication failed";
-            } else if (err.type === 'CONFIG') {
-                statusStr = "Configuration error";
-            } else if (err.message.includes("fetch") || err.message.includes("NetworkError") || err.message.includes("Failed to fetch")) {
-                statusStr = "Network error";
-            }
-
-            resEl.textContent = `❌ ${statusStr}: ${err.message} (${elapsed}ms)`;
-            resEl.style.backgroundColor = 'var(--red-soft)';
-            resEl.style.color = 'var(--red)';
-        }
-    };
-};

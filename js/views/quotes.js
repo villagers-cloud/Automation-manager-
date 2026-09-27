@@ -1,20 +1,54 @@
 // Quotes View
-window.appRouter.addRoute('quotes', async () => {
+window.appRouter.addRoute('quotes', async (fullRoute) => {
+    const parts = (fullRoute || 'quotes').split(':');
+    const subAction = parts[1];
+    const id = parts[2];
+
+    if (subAction === 'new') {
+        await showQuoteForm();
+    } else if (subAction === 'edit' && id) {
+        const q = await window.appDB.get('quotes', id);
+        if (!q) return window.appRouter.navigate('quotes');
+        await showQuoteForm(q);
+    } else if (subAction === 'dup' && id) {
+        const q = await window.appDB.get('quotes', id);
+        if (!q) return window.appRouter.navigate('quotes');
+        await showQuoteForm(q, true);
+    } else {
+        await renderQuotesList();
+    }
+});
+
+async function renderQuotesList() {
     const container = document.getElementById('page-quotes');
     container.innerHTML = `
         <div class="card">
             <div class="toolbar">
                 <h2 style="margin:0">Quotes</h2>
-            <button class="icon-btn global-filter-btn" title="Filter by Date">📅</button>
+                <button class="icon-btn global-filter-btn" title="Filter by Date">📅</button>
                 <input class="search" id="quoteSearch" placeholder="Search quotes...">
                 <button class="btn primary" id="newQuoteBtn">+ New Quote</button>
             </div>
+
+            <!-- Contextual Help -->
+            <div class="help-box" style="margin-bottom:15px; padding:12px 14px; background:var(--primary-soft); border-radius:12px; font-size:13px; line-height:1.4;">
+                <details>
+                    <summary style="font-weight:700; cursor:pointer; color:var(--primary);">ℹ How Quotes Work</summary>
+                    <div style="margin-top:8px;">
+                        <strong>WHAT IT DOES:</strong> Prepares price proposals for clients before work begins.<br>
+                        <strong>INPUT:</strong> Client selection, setup fee, monthly retainer, deliverables checklist, and message usage estimates.<br>
+                        <strong>PROCESS:</strong> Total cost and expected profit are computed automatically with taxes.<br>
+                        <strong>OUTPUT:</strong> Professional proposal/quote saved locally, ready for PDF export or printing.<br>
+                        <div style="margin-top:4px; font-style:italic;"><strong>EXAMPLE:</strong> Client: "ABC Auto Service" → Service: Website Setup = ₹10,000 + Tax 18% → Total ₹11,800 automatically calculated.</div>
+                    </div>
+                </details>
+            </div>
+
             <div id="quoteList">Loading...</div>
         </div>
     `;
 
     let quotes = await window.appDB.getAll('quotes');
-    // Ensure we have up-to-date client names (since clients can be edited)
     for (let q of quotes) {
         if (q.clientId) {
             const client = await window.appDB.get('clients', q.clientId);
@@ -27,7 +61,7 @@ window.appRouter.addRoute('quotes', async () => {
         const listContainer = document.getElementById('quoteList');
 
         if (list.length === 0) {
-            listContainer.innerHTML = '<div class="empty">No quotes found.</div>';
+            listContainer.innerHTML = '<div class="empty">No quotes found. Create your first quote to get started.</div>';
             return;
         }
 
@@ -62,7 +96,7 @@ window.appRouter.addRoute('quotes', async () => {
         renderQuotes(e.target.value);
     });
 
-    document.getElementById('newQuoteBtn').onclick = () => showQuoteForm();
+    document.getElementById('newQuoteBtn').onclick = () => window.appRouter.navigate('quotes:new');
 
     document.getElementById('quoteList').addEventListener('change', async (e) => {
         if (e.target.dataset.statusQuote) {
@@ -71,7 +105,6 @@ window.appRouter.addRoute('quotes', async () => {
                 q.status = e.target.value;
                 await window.appDB.put('quotes', q);
                 quotes = await window.appDB.getAll('quotes');
-                // Refresh list but keep search
                 renderQuotes(document.getElementById('quoteSearch').value);
             }
         }
@@ -82,11 +115,9 @@ window.appRouter.addRoute('quotes', async () => {
         if (!btn) return;
 
         if (btn.dataset.editQuote) {
-            const q = await window.appDB.get('quotes', btn.dataset.editQuote);
-            showQuoteForm(q);
+            window.appRouter.navigate(`quotes:edit:${btn.dataset.editQuote}`);
         } else if (btn.dataset.dupQuote) {
-            const q = await window.appDB.get('quotes', btn.dataset.dupQuote);
-            showQuoteForm(q, true);
+            window.appRouter.navigate(`quotes:dup:${btn.dataset.dupQuote}`);
         } else if (btn.dataset.deleteQuote) {
             if (await window.showConfirm("Delete this quote?")) {
                 await window.appDB.delete('quotes', btn.dataset.deleteQuote);
@@ -98,17 +129,15 @@ window.appRouter.addRoute('quotes', async () => {
             generatePdf(q);
         }
     });
-});
+}
 
 async function showQuoteForm(quote = null, isDuplicate = false) {
     const isEdit = quote && !isDuplicate;
     const container = document.getElementById('page-quotes');
 
-    // Fetch dependencies
     const clients = await window.appDB.getAll('clients');
     const services = await window.appDB.getAll('services');
 
-    // Next invoice number
     let nextInv = window.AppState.settings.invoicePrefix + "-001";
     if (!isEdit) {
         const allQuotes = await window.appDB.getAll('quotes');
@@ -123,9 +152,9 @@ async function showQuoteForm(quote = null, isDuplicate = false) {
     container.innerHTML = `
         <div class="card">
             <div class="toolbar">
-                <h2 style="margin:0">${isEdit ? 'Edit Quote' : 'New Quote'}</h2>
-            <button class="icon-btn global-filter-btn" title="Filter by Date">📅</button>
-                <button class="btn" id="cancelQuoteBtn">Cancel</button>
+                <button type="button" class="btn back-btn" id="backQuoteFormBtn">← Back</button>
+                <h2 style="margin:0; flex:1; text-align:center;">${isEdit ? 'Edit Quote' : 'New Quote'}</h2>
+                <button class="icon-btn global-filter-btn" title="Filter by Date">📅</button>
             </div>
 
             <form id="quoteForm">
@@ -206,20 +235,19 @@ async function showQuoteForm(quote = null, isDuplicate = false) {
                     <textarea id="qf-notes">${quote ? escapeHTML(quote.notes || "") : ""}</textarea>
                 </div>
 
-                <div style="margin-top:20px;">
-                    <button type="submit" class="btn green">Save Quote</button>
+                <div style="margin-top:20px; display:flex; gap:10px;">
+                    <button type="submit" class="btn green" style="flex:1;">Save Quote</button>
+                    <button type="button" class="btn" id="cancelQuoteBtn">Cancel</button>
                 </div>
             </form>
         </div>
     `;
 
-    document.getElementById('cancelQuoteBtn').onclick = () => window.appRouter.navigate('quotes');
+    document.getElementById('backQuoteFormBtn').onclick = () => window.appRouter.back();
+    document.getElementById('cancelQuoteBtn').onclick = () => window.appRouter.back();
 
-    // Manage dynamic arrays (Services from catalog, Expenses)
-    const servicesListEl = document.getElementById('qf-services-list');
     const expensesListEl = document.getElementById('qf-expenses-list');
 
-    // Re-add expenses
     if (quote && quote.expenses) {
         quote.expenses.forEach(e => addExpenseRow(e.name, e.amount, e.billToClient));
     }
@@ -243,18 +271,15 @@ async function showQuoteForm(quote = null, isDuplicate = false) {
 
     document.getElementById('qf-add-expense').onclick = () => addExpenseRow();
 
-    // Add service from catalog
     document.getElementById('qf-add-service').onchange = async (e) => {
         if (!e.target.value) return;
         const s = await window.appDB.get('services', e.target.value);
         if (s) {
-            // Inject into quote totals
             document.getElementById('qf-setup').value = (Number(document.getElementById('qf-setup').value) + s.setupPrice).toFixed(2);
             document.getElementById('qf-retainer').value = (Number(document.getElementById('qf-retainer').value) + s.monthlyPrice).toFixed(2);
-            // Optionally add as line item if it has hourly
             updateTotals();
         }
-        e.target.value = ""; // reset select
+        e.target.value = "";
     };
 
     const updateTotals = () => {
@@ -276,7 +301,7 @@ async function showQuoteForm(quote = null, isDuplicate = false) {
     };
 
     document.getElementById('quoteForm').addEventListener('input', updateTotals);
-    updateTotals(); // initial call
+    updateTotals();
 
     document.getElementById('quoteForm').onsubmit = async (e) => {
         e.preventDefault();
@@ -299,7 +324,7 @@ async function showQuoteForm(quote = null, isDuplicate = false) {
         const data = {
             id: isEdit ? quote.id : generateId(),
             clientId: clientId,
-            clientNameTemp: client ? client.name : "", // cache name
+            clientNameTemp: client ? client.name : "",
             invoice: document.getElementById('qf-invoice').value,
             date: document.getElementById('qf-date').value,
             setupFee: Number(document.getElementById('qf-setup').value) || 0,
@@ -314,11 +339,11 @@ async function showQuoteForm(quote = null, isDuplicate = false) {
         };
 
         await window.appDB.put('quotes', data);
+        window.appRouter.isFormDirty = false;
         window.appRouter.navigate('quotes');
     };
 }
 
-// PDF Generation
 let __pdfGenerating = false;
 
 async function generatePdf(q) {
@@ -339,7 +364,6 @@ async function generatePdf(q) {
     const template = document.getElementById('pdfTemplate');
     template.style.display = 'block';
 
-    // Calculation
     const setup = Number(q.setupFee) || 0;
     const retainer = Number(q.retainer) || 0;
     const billable = (q.expenses || []).filter(e => e.billToClient).reduce((sum, e) => sum + (Number(e.amount) || 0), 0);
